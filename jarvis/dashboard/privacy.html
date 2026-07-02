@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANTIGRAVITY · Privacy & Security</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #030912; --bg2: #050e1e; --surface: #07111f; --surface2: #0b1829;
+      --border: #132540; --border2: #1e3860; --accent: #00d4ff; --red: #ff3d6e;
+      --text: #c5d8f5; --text2: #8aafd4; --muted: #3d5c80;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image: linear-gradient(rgba(0,85,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,85,255,0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+    .header { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 14px 36px; background: rgba(3,9,18,0.94); border-bottom: 1px solid var(--border); }
+    .brand-text h1 { font-family: 'Rajdhani', sans-serif; font-size: 19px; font-weight: 700; letter-spacing: 5px; color: var(--accent); }
+    .brand-text p { font-size: 9px; color: var(--muted); letter-spacing: 3px; font-family: 'Rajdhani', sans-serif; }
+    .nav-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text2); font-size: 11px; text-decoration: none; font-weight: 600; font-family: 'Rajdhani', sans-serif; }
+    .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .container { position: relative; z-index: 1; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 24px; }
+    .card-title { font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 12px; color: var(--accent); }
+    .card-text { font-size: 14px; color: var(--text2); margin-bottom: 20px; line-height: 1.6; }
+    .qr-container { text-align: center; margin-bottom: 20px; }
+    .qr-container img { border: 4px solid white; border-radius: 8px; max-width: 200px; }
+    .input-group { display: flex; gap: 10px; margin-top: 15px; }
+    .input-group input { flex: 1; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: 'Share Tech Mono'; }
+    .btn-danger { background: rgba(255,61,110,0.1); border: 1px solid var(--red); color: var(--red); padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+    .btn-danger:hover { background: rgba(255,61,110,0.2); box-shadow: 0 0 15px rgba(255,61,110,0.4); }
+    .data-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid var(--border); }
+    .data-row:last-child { border-bottom: none; }
+    .data-info h3 { font-size: 15px; margin-bottom: 4px; }
+    .data-info p { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="brand-text">
+    <h1>A.N.T.I.G.R.A.V.I.T.Y</h1>
+    <p>PRIVACY & SECURITY</p>
+  </div>
+  <div>
+    <a class="nav-btn" href="/dashboard">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+  
+  <div class="card" id="mfa-card">
+    <div class="card-title">Multi-Factor Authentication (MFA)</div>
+    <div class="card-text">Scan this QR code with your Authenticator App (Google Authenticator, Authy, etc.). You will need the 6-digit code to perform sensitive actions like deleting data.</div>
+    <div class="qr-container" id="qr-container">Loading...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Data Management</div>
+    <div class="card-text">Permanently delete your data. End-to-end encryption is enabled for all records, but you can choose to wipe them entirely.</div>
+    
+    <div class="data-row">
+      <div class="data-info">
+        <h3>Chat History</h3>
+        <p>Delete all conversational memory and messages.</p>
+      </div>
+      <div><button class="btn-danger" onclick="triggerDelete('history')">Wipe History</button></div>
+    </div>
+    
+    <div class="data-row">
+      <div class="data-info">
+        <h3>Contacts & CRM</h3>
+        <p>Delete all contact records and interaction logs.</p>
+      </div>
+      <div><button class="btn-danger" onclick="triggerDelete('contacts')">Wipe Contacts</button></div>
+    </div>
+    
+    <div class="data-row">
+      <div class="data-info">
+        <h3>Personal Data</h3>
+        <p>Delete health logs, financial records, and goals.</p>
+      </div>
+      <div><button class="btn-danger" onclick="triggerDelete('personal')">Wipe Personal Data</button></div>
+    </div>
+
+    <div class="data-row">
+      <div class="data-info">
+        <h3 style="color:var(--red)">Erase Everything</h3>
+        <p>Nuclear option. Delete all data across all stores.</p>
+      </div>
+      <div><button class="btn-danger" onclick="triggerDelete('all')">Erase All</button></div>
+    </div>
+
+    <div id="mfa-prompt" style="display:none; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+      <div class="card-title" style="font-size:14px; color:var(--red);">Confirm Deletion with MFA</div>
+      <div class="input-group">
+        <input type="text" id="mfa-code" placeholder="Enter 6-digit MFA Code" maxlength="6" autocomplete="off" />
+        <button class="btn-danger" id="confirm-btn">Confirm Delete</button>
+      </div>
+      <div id="status-msg" style="margin-top: 10px; font-size: 12px;"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let pendingTarget = null;
+
+  async function loadMFA() {
+    try {
+      const res = await fetch('/api/mfa/setup');
+      const data = await res.json();
+      if (data.configured && data.qr_base64) {
+        document.getElementById('qr-container').innerHTML = `<img src="data:image/png;base64,${data.qr_base64}" alt="MFA QR Code" />`;
+      } else {
+        document.getElementById('qr-container').innerHTML = `<p style="color:var(--yellow)">MFA Secret not configured in .env. Deletions will not require MFA.</p>`;
+      }
+    } catch (e) {
+      console.error(e);
+      document.getElementById('qr-container').innerHTML = 'Failed to load MFA setup.';
+    }
+  }
+
+  function triggerDelete(target) {
+    pendingTarget = target;
+    document.getElementById('mfa-prompt').style.display = 'block';
+    document.getElementById('mfa-code').focus();
+    document.getElementById('status-msg').innerText = '';
+  }
+
+  document.getElementById('confirm-btn').addEventListener('click', async () => {
+    if (!pendingTarget) return;
+    const code = document.getElementById('mfa-code').value;
+    const msgEl = document.getElementById('status-msg');
+    
+    msgEl.innerText = 'Processing...';
+    msgEl.style.color = 'var(--text2)';
+
+    try {
+      const res = await fetch('/api/privacy/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: pendingTarget, mfa_code: code })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        msgEl.innerText = 'Success: ' + data.message;
+        msgEl.style.color = 'var(--green)';
+        document.getElementById('mfa-code').value = '';
+        setTimeout(() => { document.getElementById('mfa-prompt').style.display = 'none'; }, 2000);
+      } else {
+        msgEl.innerText = 'Error: ' + data.detail;
+        msgEl.style.color = 'var(--red)';
+      }
+    } catch (e) {
+      msgEl.innerText = 'Network error.';
+      msgEl.style.color = 'var(--red)';
+    }
+  });
+
+  loadMFA();
+</script>
+
+</body>
+</html>

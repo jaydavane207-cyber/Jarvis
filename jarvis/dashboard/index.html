@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANTIGRAVITY · Live Dashboard</title>
+  <meta name="description" content="ANTIGRAVITY JARVIS Live System Dashboard — real-time metrics, routing decisions, latency charts, and more."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #030912;
+      --bg2:       #050e1e;
+      --surface:   #07111f;
+      --surface2:  #0b1829;
+      --surface3:  #0f2038;
+      --border:    #132540;
+      --border2:   #1e3860;
+      --border3:   #2a4f80;
+      --accent:    #00d4ff;
+      --accent2:   #0055ff;
+      --green:     #00f0a8;
+      --red:       #ff3d6e;
+      --yellow:    #ffd040;
+      --purple:    #b060ff;
+      --orange:    #ff8c42;
+      --text:      #c5d8f5;
+      --text2:     #8aafd4;
+      --muted:     #3d5c80;
+      --muted2:    #5a7ba8;
+      --glow:      0 0 40px rgba(0,212,255,0.12);
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background layers ───────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(rgba(0,85,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,85,255,0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+    }
+    .bg-glow-1 {
+      position: fixed; z-index: 0; pointer-events: none;
+      width: 800px; height: 800px; top: -300px; left: -200px;
+      background: radial-gradient(circle, rgba(0,85,255,0.06) 0%, transparent 65%);
+      animation: bgFloat1 18s ease-in-out infinite alternate;
+    }
+    .bg-glow-2 {
+      position: fixed; z-index: 0; pointer-events: none;
+      width: 600px; height: 600px; bottom: -200px; right: -150px;
+      background: radial-gradient(circle, rgba(176,96,255,0.05) 0%, transparent 65%);
+      animation: bgFloat2 22s ease-in-out infinite alternate;
+    }
+    @keyframes bgFloat1 { from { transform: translate(0,0); } to { transform: translate(80px, 60px); } }
+    @keyframes bgFloat2 { from { transform: translate(0,0); } to { transform: translate(-50px, -80px); } }
+    .scanlines {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.012) 2px, rgba(0,0,0,0.012) 4px);
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 36px;
+      background: rgba(3,9,18,0.94);
+      backdrop-filter: blur(24px);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+    .brand-orb-wrap { position: relative; width: 38px; height: 38px; flex-shrink: 0; }
+    .brand-orb {
+      width: 38px; height: 38px; border-radius: 50%;
+      background: conic-gradient(from 0deg, #00d4ff, #0055ff, #b060ff, #00d4ff);
+      animation: orbSpin 6s linear infinite;
+      box-shadow: 0 0 24px rgba(0,212,255,0.6);
+    }
+    @keyframes orbSpin { to { transform: rotate(360deg); } }
+    .brand-inner {
+      position: absolute; width: 28px; height: 28px; border-radius: 50%;
+      background: var(--bg); top: 5px; left: 5px;
+    }
+    .brand-text h1 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 19px; font-weight: 700; letter-spacing: 5px;
+      background: linear-gradient(90deg, #00d4ff 0%, #0055ff 60%, #b060ff 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .brand-text p { font-size: 9px; color: var(--muted2); letter-spacing: 3px; font-family: 'Rajdhani', sans-serif; }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .nav-btn {
+      padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border2);
+      background: var(--surface2); color: var(--text2);
+      font-size: 11px; font-weight: 600; font-family: 'Rajdhani', sans-serif;
+      letter-spacing: 1.5px; cursor: pointer; text-decoration: none;
+      transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .nav-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.06); }
+
+    .live-badge {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 14px; border-radius: 20px;
+      background: rgba(0,240,168,0.07); border: 1px solid rgba(0,240,168,0.25);
+      font-size: 10px; font-weight: 700; letter-spacing: 2.5px; color: var(--green);
+      font-family: 'Share Tech Mono';
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.5); opacity: 0.7; }
+    }
+    .last-update { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono'; }
+
+    /* ── Grid ───────────────────────────────────────────── */
+    .grid {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      padding: 28px 36px 60px;
+      max-width: 1700px; margin: 0 auto;
+    }
+
+    /* ── Cards ──────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px;
+      position: relative; overflow: hidden;
+      transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+    }
+    .card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0; transition: opacity 0.4s;
+    }
+    .card:hover { border-color: rgba(0,212,255,0.25); box-shadow: var(--glow); transform: translateY(-2px); }
+    .card:hover::before { opacity: 1; }
+
+    .card-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 3px;
+      color: var(--muted); text-transform: uppercase;
+      margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+      font-family: 'Rajdhani', sans-serif;
+    }
+    .card-label svg { opacity: 0.6; flex-shrink: 0; }
+    .card-value { font-size: 44px; font-weight: 700; line-height: 1; font-family: 'Share Tech Mono'; }
+    .card-sub { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+    /* stat colours */
+    .val-blue   { color: var(--accent);  text-shadow: 0 0 24px rgba(0,212,255,0.55); }
+    .val-green  { color: var(--green);   text-shadow: 0 0 24px rgba(0,240,168,0.55); }
+    .val-yellow { color: var(--yellow);  text-shadow: 0 0 24px rgba(255,208,64,0.55); }
+    .val-purple { color: var(--purple);  text-shadow: 0 0 24px rgba(176,96,255,0.55); }
+    .val-red    { color: var(--red);     text-shadow: 0 0 24px rgba(255,61,110,0.55); }
+
+    /* ── Badges ─────────────────────────────────────────── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 12px;
+      font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+      font-family: 'Share Tech Mono';
+    }
+    .badge-green { background: rgba(0,240,168,0.08); border: 1px solid rgba(0,240,168,0.25); color: var(--green); }
+    .badge-red   { background: rgba(255,61,110,0.08); border: 1px solid rgba(255,61,110,0.25); color: var(--red); }
+    .badge-dot   { width: 5px; height: 5px; border-radius: 50%; }
+    .badge-green .badge-dot { background: var(--green); }
+    .badge-red   .badge-dot { background: var(--red); }
+
+    /* ── Grid spans ─────────────────────────────────────── */
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+
+    /* ── Chart card ─────────────────────────────────────── */
+    .chart-wrap { position: relative; height: 160px; margin-top: 4px; }
+
+    /* ── Routing log ─────────────────────────────────────── */
+    .log-scroll { overflow-y: auto; max-height: 260px; }
+    .log-table { width: 100%; border-collapse: collapse; font-family: 'Share Tech Mono'; font-size: 12px; }
+    .log-table th {
+      text-align: left; padding: 7px 12px;
+      font-size: 9px; letter-spacing: 2.5px; color: var(--muted);
+      border-bottom: 1px solid var(--border); font-family: 'Rajdhani', sans-serif; font-weight: 700;
+      position: sticky; top: 0; background: var(--surface); z-index: 2;
+    }
+    .log-table td {
+      padding: 8px 12px; border-bottom: 1px solid rgba(19,37,64,0.5); color: var(--text);
+      transition: background 0.15s;
+    }
+    .log-table tr:hover td { background: rgba(11,24,41,0.7); }
+    .log-table tr.new-row td { animation: rowIn 0.4s ease; }
+    @keyframes rowIn { from { opacity: 0; background: rgba(0,212,255,0.08); } }
+
+    /* ── Agent pills ─────────────────────────────────────── */
+    .agent-pill {
+      display: inline-block; padding: 2px 9px; border-radius: 8px;
+      font-size: 10px; font-weight: 700; letter-spacing: 1px;
+      font-family: 'Rajdhani', sans-serif;
+    }
+    .agent-ReminderAgent  { background: rgba(0,212,255,0.10); color: #00d4ff; border: 1px solid rgba(0,212,255,0.2); }
+    .agent-SmartHomeAgent { background: rgba(0,240,168,0.10); color: #00f0a8; border: 1px solid rgba(0,240,168,0.2); }
+    .agent-ResearchAgent  { background: rgba(176,96,255,0.10); color: #b060ff; border: 1px solid rgba(176,96,255,0.2); }
+    .agent-ExecutorAgent  { background: rgba(255,208,64,0.10); color: #ffd040; border: 1px solid rgba(255,208,64,0.2); }
+    .agent-PlannerAgent   { background: rgba(255,61,110,0.10); color: #ff3d6e; border: 1px solid rgba(255,61,110,0.2); }
+    .agent-CoderAgent     { background: rgba(99,179,237,0.10); color: #63b3ed; border: 1px solid rgba(99,179,237,0.2); }
+    .agent-GeneralLLM     { background: rgba(90,123,168,0.12); color: #8aafd4; border: 1px solid rgba(90,123,168,0.2); }
+
+    .latency-bar {
+      display: inline-block; height: 3px; border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      margin-right: 6px; vertical-align: middle;
+    }
+
+    /* ── Model info ─────────────────────────────────────── */
+    .model-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 0; border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .model-row:last-child { border-bottom: none; }
+    .model-key { color: var(--muted2); font-size: 11px; font-family: 'Rajdhani', sans-serif; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+    .model-val { font-family: 'Share Tech Mono'; color: var(--accent); font-size: 11px; }
+
+    /* ── Reminder list ───────────────────────────────────── */
+    .reminder-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid rgba(19,37,64,0.5);
+    }
+    .reminder-item:last-child { border-bottom: none; }
+    .reminder-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .reminder-time { font-family: 'Share Tech Mono'; color: var(--yellow); font-size: 11px; }
+    .reminder-text { color: var(--text2); font-size: 12px; line-height: 1.5; }
+    .empty-msg { color: var(--muted); font-size: 12px; font-style: italic; padding: 16px 0; text-align: center; }
+
+    /* ── Uptime indicator ───────────────────────────────── */
+    .pulse-ring {
+      position: relative; width: 60px; height: 60px; margin: 0 auto 10px;
+    }
+    .pulse-ring::before, .pulse-ring::after {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
+    }
+    .pulse-ring::before { background: rgba(0,212,255,0.15); animation: ringPulse 2s ease-out infinite; }
+    .pulse-ring::after  { background: rgba(0,212,255,0.08); animation: ringPulse 2s ease-out infinite 0.5s; }
+    @keyframes ringPulse {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+    .pulse-core {
+      position: absolute; inset: 14px; border-radius: 50%;
+      background: radial-gradient(circle, var(--accent) 0%, var(--accent2) 100%);
+      box-shadow: 0 0 20px rgba(0,212,255,0.7);
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border3); }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 1200px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .span-3 { grid-column: span 2; }
+      .span-4 { grid-column: span 2; }
+    }
+    @media (max-width: 700px) {
+      .grid { grid-template-columns: 1fr; padding: 16px; }
+      .span-2, .span-3, .span-4 { grid-column: span 1; }
+      .header { padding: 12px 18px; }
+    }
+
+    /* ── Fade in ─────────────────────────────────────────── */
+    .card { animation: cardIn 0.5s ease both; }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg-glow-1"></div>
+<div class="bg-glow-2"></div>
+<div class="scanlines"></div>
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<header class="header">
+  <a class="brand" href="/chat" title="Open Chat">
+    <div class="brand-orb-wrap">
+      <div class="brand-orb"></div>
+      <div class="brand-inner"></div>
+    </div>
+    <div class="brand-text">
+      <h1>A.N.T.I.G.R.A.V.I.T.Y</h1>
+      <p>LIVE SYSTEM DASHBOARD</p>
+    </div>
+  </a>
+  <div class="header-right">
+    <a class="nav-btn" href="/privacy">🔒 Security & Privacy</a>
+    <a class="nav-btn" href="/api">⚙ API Explorer</a>
+    <a class="nav-btn" href="/chat">💬 Chat</a>
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    <div class="last-update" id="last-update">Connecting…</div>
+  </div>
+</header>
+
+<!-- ── Grid ────────────────────────────────────────────────────────────────── -->
+<main class="grid">
+
+  <!-- Stat: Active Connections -->
+  <div class="card" style="animation-delay:0.05s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Active Connections
+    </div>
+    <div class="card-value val-blue" id="val-connections">–</div>
+    <div class="card-sub">WebSocket clients</div>
+  </div>
+
+  <!-- Stat: Avg Latency -->
+  <div class="card" style="animation-delay:0.10s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Avg Latency
+    </div>
+    <div class="card-value val-yellow" id="val-latency">–</div>
+    <div class="card-sub">milliseconds per request</div>
+  </div>
+
+  <!-- Stat: Pending Reminders -->
+  <div class="card" style="animation-delay:0.15s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Pending Reminders
+    </div>
+    <div class="card-value val-green" id="val-reminders">–</div>
+    <div class="card-sub">scheduled alerts</div>
+  </div>
+
+  <!-- Stat: Memory Messages -->
+  <div class="card" style="animation-delay:0.20s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      Memory Messages
+    </div>
+    <div class="card-value val-purple" id="val-memory">–</div>
+    <div class="card-sub">stored conversation turns</div>
+  </div>
+
+  <!-- Latency Chart (span 3) -->
+  <div class="card span-3" style="animation-delay:0.25s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Response Latency — Last 50 Requests (ms)
+    </div>
+    <div class="chart-wrap">
+      <canvas id="latency-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- System Status (span 1) -->
+  <div class="card" style="animation-delay:0.30s">
+    <div class="card-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      System Status
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">
+      <div class="model-row">
+        <span class="model-key">Local LLM</span>
+        <span class="model-val" id="val-local-model">–</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Cloud LLM</span>
+        <span id="val-cloud-badge">–</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Vector Memory</span>
+        <span id="val-vector-badge">–</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Run on Startup</span>
+        <button id="autostart-btn" onclick="toggleAutostart()" style="background:var(--surface2); border:1px solid var(--border2); color:var(--text); font-size:10px; font-family:'Rajdhani'; padding:2px 8px; border-radius:4px; cursor:pointer;">CHECKING...</button>
+      </div>
+    </div>
+    <div style="margin-top:18px;text-align:center;">
+      <div class="pulse-ring"><div class="pulse-core"></div></div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--muted2);letter-spacing:1.5px;" id="status-label">SYSTEM ACTIVE</div>
+    </div>
+  </div>
+
+  <!-- Routing Log (span 3) -->
+  <div class="card span-3" style="animation-delay:0.35s">
+    <div class="card-label" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Recent Routing Decisions
+      </div>
+      <button onclick="clearLogs()" style="background:var(--surface2); border:1px solid var(--border2); color:var(--muted2); font-size:9px; font-family:'Rajdhani'; letter-spacing:2px; padding:4px 10px; border-radius:6px; cursor:pointer; text-transform:uppercase; transition:all 0.2s;">Clear Logs</button>
+    </div>
+    <div class="log-scroll">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Agent</th>
+            <th>Message</th>
+            <th>Latency</th>
+          </tr>
+        </thead>
+        <tbody id="routing-log-body">
+          <tr><td colspan="4" style="color:var(--muted);padding:20px 12px;font-style:italic;">Waiting for first request…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Upcoming Reminders (span 1) -->
+  <div class="card" style="animation-delay:0.40s">
+    <div class="card-label" style="margin-bottom:12px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Upcoming Reminders
+    </div>
+    <div id="reminders-list" style="max-height:250px;overflow-y:auto;">
+      <div class="empty-msg">No reminders scheduled.</div>
+    </div>
+  </div>
+
+  <!-- Tool Execution Logs (span 4) -->
+  <div class="card span-4" style="animation-delay:0.45s">
+    <div class="card-label" style="margin-bottom:12px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      Recent Tool Activity
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th style="width:110px;">Time</th>
+            <th style="width:140px;">Agent</th>
+            <th style="width:30%;">Query</th>
+            <th>Result Summary</th>
+          </tr>
+        </thead>
+        <tbody id="tool-log-body">
+          <tr><td colspan="4" style="color:var(--muted);padding:20px 12px;font-style:italic;">Waiting for tools to be used…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Chart.js loading ───────────────────────────────────────────────────────────
+let latencyChart = null;
+
+function initChart() {
+  const ctx = document.getElementById('latency-chart').getContext('2d');
+  latencyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Latency (ms)',
+        data: [],
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,0.05)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#00d4ff',
+        pointBorderColor: 'transparent',
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#0b1829',
+        borderColor: '#1e3860',
+        borderWidth: 1,
+        titleColor: '#8aafd4',
+        bodyColor: '#00d4ff',
+        padding: 10,
+        bodyFont: { family: 'Share Tech Mono', size: 12 },
+      }},
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(19,37,64,0.7)' },
+          ticks: { color: '#3d5c80', font: { family: 'Share Tech Mono', size: 11 } },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+
+// Load Chart.js dynamically to avoid blocking
+const chartScript = document.createElement('script');
+chartScript.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+chartScript.onload = () => { initChart(); refresh(); };
+chartScript.onerror = () => {
+  console.warn('Chart.js CDN unavailable; chart disabled.');
+  document.querySelector('.chart-wrap').innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;font-style:italic;">Chart.js unavailable (CDN blocked)</div>';
+  refresh();
+};
+document.head.appendChild(chartScript);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function badge(enabled, labelTrue, labelFalse) {
+  return enabled
+    ? `<span class="badge badge-green"><span class="badge-dot"></span>${labelTrue}</span>`
+    : `<span class="badge badge-red"><span class="badge-dot"></span>${labelFalse}</span>`;
+}
+
+function latencyBar(ms) {
+  const max = 5000;
+  const w = Math.min(80, Math.round((ms / max) * 80));
+  const color = ms < 500 ? '#00f0a8' : ms < 2000 ? '#ffd040' : '#ff3d6e';
+  return `<span class="latency-bar" style="width:${w}px;background:${color};"></span><span style="color:${color}">${ms} ms</span>`;
+}
+
+function agentPill(name) {
+  const label = name.replace('Agent','').replace('GeneralLLM','General');
+  return `<span class="agent-pill agent-${name}">${label}</span>`;
+}
+
+function truncate(str, n=55) {
+  if (!str) return '';
+  return str.length > n ? str.slice(0, n) + '…' : str;
+}
+
+// ── Dashboard update ──────────────────────────────────────────────────────────
+let prevFirstMessage = null;
+let prevFirstToolResult = null;
+
+async function refresh() {
+  try {
+    const res = await fetch('/stats');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+
+    // Scalar stats
+    animateNumber('val-connections', d.connections ?? 0);
+    document.getElementById('val-latency').textContent     = d.avg_latency_ms != null ? d.avg_latency_ms + ' ms' : '0 ms';
+    animateNumber('val-reminders', d.pending_reminders ?? 0);
+    animateNumber('val-memory', d.memory_messages ?? 0);
+    document.getElementById('val-local-model').textContent = d.local_model ?? '–';
+    document.getElementById('val-cloud-badge').innerHTML   = badge(d.cloud_enabled, 'ENABLED', 'NO KEY');
+    document.getElementById('val-vector-badge').innerHTML  = badge(d.vector_enabled, 'ACTIVE', 'DISABLED');
+
+    // Latency chart
+    if (latencyChart) {
+      const lats = d.latency_log || [];
+      latencyChart.data.labels               = lats.map((_, i) => i + 1);
+      latencyChart.data.datasets[0].data     = lats;
+      latencyChart.update('none');
+    }
+
+    // Routing log
+    const log = d.routing_log || [];
+    if (log.length > 0) {
+      const tbody = document.getElementById('routing-log-body');
+      tbody.innerHTML = '';
+      log.slice().reverse().forEach((entry, i) => {
+        const tr = document.createElement('tr');
+        if (i === 0 && entry.message !== prevFirstMessage) {
+          tr.classList.add('new-row');
+          prevFirstMessage = entry.message;
+        }
+        tr.innerHTML = `
+          <td style="color:var(--muted);width:30px">${log.length - i}</td>
+          <td>${agentPill(entry.agent)}</td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${truncate(entry.message)}</td>
+          <td>${latencyBar(entry.latency_ms)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Tool Log
+    const tlog = d.tool_logs || [];
+    if (tlog.length > 0) {
+      const tbody = document.getElementById('tool-log-body');
+      tbody.innerHTML = '';
+      tlog.slice().reverse().forEach((entry, i) => {
+        const tr = document.createElement('tr');
+        if (i === 0 && entry.result !== prevFirstToolResult) {
+          tr.classList.add('new-row');
+          prevFirstToolResult = entry.result;
+        }
+        const t = new Date(entry.timestamp * 1000);
+        const timeStr = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        tr.innerHTML = `
+          <td style="color:var(--muted);">${timeStr}</td>
+          <td>${agentPill(entry.agent)}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)"
+              title="${(entry.message||'').replace(/"/g,'&quot;')}">${truncate(entry.message)}</td>
+          <td style="color:var(--muted2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${(entry.result||'').replace(/"/g,'&quot;')}">${truncate(entry.result||'', 80)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Reminders
+    const remDiv = document.getElementById('reminders-list');
+    if ((d.pending_reminders || 0) === 0) {
+      remDiv.innerHTML = '<div class="empty-msg">No reminders scheduled.</div>';
+    } else {
+      if (!remDiv.dataset.loaded) {
+        remDiv.innerHTML = `<div class="reminder-item"><div class="reminder-icon">🔔</div><div><div class="reminder-time">${d.pending_reminders} scheduled</div><div class="reminder-text">Open ANTIGRAVITY chat and say "my reminders" for full list.</div></div></div>`;
+        remDiv.dataset.loaded = "true";
+      }
+    }
+
+    // Update time
+    document.getElementById('last-update').textContent =
+      'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    document.getElementById('status-label').textContent = 'SYSTEM ACTIVE';
+    
+    // Autostart status
+    fetch('/api/autostart').then(r => r.json()).then(d => {
+      const btn = document.getElementById('autostart-btn');
+      if (d.enabled) {
+          btn.textContent = 'DISABLE';
+          btn.style.color = 'var(--red)';
+          btn.style.borderColor = 'rgba(255,61,110,0.4)';
+      } else {
+          btn.textContent = 'ENABLE';
+          btn.style.color = 'var(--green)';
+          btn.style.borderColor = 'rgba(0,240,168,0.4)';
+      }
+    }).catch(e => console.error(e));
+
+  } catch (e) {
+    document.getElementById('last-update').textContent = '⚠ Retrying…';
+    document.getElementById('status-label').textContent = 'CONNECTION LOST';
+  }
+}
+
+async function toggleAutostart() {
+    const btn = document.getElementById('autostart-btn');
+    btn.textContent = '...';
+    try {
+        await fetch('/api/autostart', { method: 'POST' });
+        refresh();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// ── Animated number update ─────────────────────────────────────────────────────
+function animateNumber(id, target) {
+  const el = document.getElementById(id);
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const step = (target - current) / 10;
+  let val = current;
+  const interval = setInterval(() => {
+    val += step;
+    if ((step > 0 && val >= target) || (step < 0 && val <= target)) {
+      el.textContent = target;
+      clearInterval(interval);
+    } else {
+      el.textContent = Math.round(val);
+    }
+  }, 30);
+}
+
+async function clearLogs() {
+  try {
+    const btn = document.querySelector('button[onclick="clearLogs()"]');
+    const oldText = btn.textContent;
+    btn.textContent = 'CLEARING...';
+    btn.style.color = 'var(--accent)';
+    await fetch('/clear_logs', { method: 'POST' });
+    
+    // Clear local table bodies visually immediately
+    document.getElementById('routing-log-body').innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:20px 12px;font-style:italic;">Logs cleared. Waiting for new requests...</td></tr>';
+    document.getElementById('tool-log-body').innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:20px 12px;font-style:italic;">Logs cleared. Waiting for tools to be used...</td></tr>';
+    
+    if (latencyChart) {
+      latencyChart.data.labels = [];
+      latencyChart.data.datasets[0].data = [];
+      latencyChart.update('none');
+    }
+    
+    setTimeout(() => { btn.textContent = oldText; btn.style.color = ''; }, 1000);
+    refresh();
+  } catch(e) {
+    console.error('Failed to clear logs:', e);
+  }
+}
+
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

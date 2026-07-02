@@ -1,0 +1,60 @@
+{
+  "name": "jarvis-assistant",
+  "displayName": "JARVIS AI Assistant",
+  "description": "A voice-first, emotion-aware, multi-agent AI assistant",
+  "version": "1.0.0",
+  "publisher": "jay-davane",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "jarvis.openChat",
+        "title": "JARVIS: Open Chat"
+      }
+    ],
+    "configuration": {
+      "title": "JARVIS",
+      "properties": {
+        "jarvis.localModel": {
+          "type": "string",
+          "default": "llama3.1:8b",
+          "description": "Local model to use via Ollama"
+        },
+        "jarvis.voiceEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable voice I/O"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && vite build",
+    "watch": "tsc -watch -p ./",
+    "dev": "vite build --watch"
+  },
+  "devDependencies": {
+    "@types/node": "18.x",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "type-fest": "^5.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.300.0",
+    "mermaid": "^11.15.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

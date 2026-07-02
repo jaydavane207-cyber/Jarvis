@@ -1,0 +1,46 @@
+## JARVIS Dependencies
+## Install: pip install -r requirements.txt
+
+# ── Core server ──────────────────────────────────────────────────────────────
+fastapi
+uvicorn
+websockets
+pydantic
+pydantic-settings
+
+# ── HTTP clients ─────────────────────────────────────────────────────────────
+requests
+httpx
+
+# ── AI / LLM ─────────────────────────────────────────────────────────────────
+anthropic                  # Cloud LLM (Anthropic Claude) — optional, needs API key
+
+# ── Semantic memory ──────────────────────────────────────────────────────────
+chromadb                   # Vector database — persistent, embedded
+sentence-transformers      # Embedding model (all-MiniLM-L6-v2, ~80MB download)
+
+# ── Web research ─────────────────────────────────────────────────────────────
+duckduckgo-search          # No API key needed
+beautifulsoup4             # HTML scraping for richer results
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest
+pytest-asyncio
+
+# ── Productivity & Data ──────────────────────────────────────────────────────
+pandas
+matplotlib
+fpdf2
+python-docx
+
+# ── Security & Privacy ───────────────────────────────────────────────────────
+cryptography               # Column-level encryption for sensitive DB fields
+pyotp                      # Multi-Factor Authentication
+qrcode[pil]                # MFA Setup QR Codes
+
+# ── Cloud Database ───────────────────────────────────────────────────────────
+supabase
+gotrue
+
+# ── Telephony ────────────────────────────────────────────────────────────────
+twilio

@@ -1,0 +1,37 @@
+# Core Backend
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+pydantic==2.6.4
+pydantic-settings==2.2.1
+
+# Database
+SQLAlchemy==2.0.29
+alembic==1.13.1
+asyncpg==0.29.0
+redis==5.0.3
+
+# Security & Cryptography
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+cryptography==42.0.5
+# liboqs-python requires system installation of liboqs
+# liboqs-python==0.15.0  # Commented out for local testing without C dependencies
+
+# Zero-Knowledge & Advanced crypto (Placeholders for ZKP)
+# zksk==0.0.1 
+
+# Middleware & Utils
+httpx==0.27.0
+celery==5.3.6
+
+# AI & Processing
+openai==1.16.2
+# transformers==4.39.3  # Commented out for local testing
+# torch==2.2.2  # Commented out for local testing
+
+# Testing & Linting
+pytest==8.1.1
+pytest-asyncio==0.23.6
+black==24.3.0
+isort==5.13.2
+flake8==7.0.0

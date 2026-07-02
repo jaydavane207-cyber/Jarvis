@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Conversation Viewer</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
+    <!-- Highlight.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="hljs-theme">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Marked.js -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --container-bg: #1e293b;
+            --accent-color: #3b82f6;
+            --accent-hover: #2563eb;
+            --user-bg: rgba(30, 41, 59, 0.8);
+            --user-border: #3b82f6;
+            --model-bg: rgba(30, 41, 59, 0.8);
+            --model-border: #10b981;
+            --system-bg: rgba(15, 23, 42, 0.8);
+            --system-border: #ef4444;
+            --tool-bg: rgba(51, 65, 85, 0.5);
+            --border-color: #334155;
+            --input-bg: #0f172a;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f1f5f9;
+            --text-color: #0f172a;
+            --container-bg: #ffffff;
+            --user-bg: rgba(255, 255, 255, 0.9);
+            --model-bg: rgba(255, 255, 255, 0.9);
+            --system-bg: rgba(241, 245, 249, 0.9);
+            --tool-bg: rgba(226, 232, 240, 0.5);
+            --border-color: #cbd5e1;
+            --input-bg: #ffffff;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .top-nav {
+            width: 100%;
+            background-color: var(--container-bg);
+            padding: 15px 40px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-sizing: border-box;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-weight: 700;
+            margin: 0;
+            font-size: 1.5rem;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            color: var(--text-color);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+        .theme-toggle:hover { background-color: var(--border-color); }
+
+        .container {
+            max-width: 1000px;
+            width: 100%;
+            padding: 40px 20px;
+            box-sizing: border-box;
+        }
+
+        .glass-panel {
+            background-color: var(--container-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        button.btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button.btn:hover { background-color: var(--accent-hover); transform: translateY(-1px); }
+        button.btn.secondary { background-color: transparent; color: var(--text-color); border: 1px solid var(--border-color); }
+        button.btn.secondary:hover { background-color: var(--tool-bg); }
+
+        select, input[type="text"] {
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            min-width: 250px;
+            flex: 1;
+            font-family: inherit;
+        }
+
+        select:focus, input[type="text"]:focus { border-color: var(--accent-color); }
+
+        .filters {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            font-size: 14px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .filter-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .message {
+            margin-bottom: 24px;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            animation: fadeIn 0.3s ease-in-out;
+            position: relative;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user { background-color: var(--user-bg); border-left: 4px solid var(--user-border); }
+        .model { background-color: var(--model-bg); border-left: 4px solid var(--model-border); }
+        .system { background-color: var(--system-bg); border-left: 4px solid var(--system-border); opacity: 0.9; }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            color: var(--text-color);
+            opacity: 0.7;
+        }
+
+        .timestamp { font-size: 0.9em; font-weight: normal; text-transform: none; }
+
+        .markdown-body {
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .markdown-body p { margin-top: 0; margin-bottom: 1em; }
+        .markdown-body a { color: var(--accent-color); text-decoration: none; }
+        .markdown-body a:hover { text-decoration: underline; }
+        
+        .markdown-body code {
+            font-family: 'Fira Code', monospace;
+            background-color: var(--tool-bg);
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .markdown-body pre {
+            background-color: #0d1117; /* Always dark for code blocks */
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .markdown-body pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #c9d1d9;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        .copy-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
+
+        .tool-call-container {
+            margin-top: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--tool-bg);
+        }
+
+        .tool-call-header {
+            padding: 10px 15px;
+            background-color: rgba(0,0,0,0.1);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        
+        .tool-call-header:hover { background-color: rgba(0,0,0,0.15); }
+
+        .tool-call-body {
+            padding: 15px;
+            display: none;
+            border-top: 1px solid var(--border-color);
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85em;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .tool-call-body.expanded { display: block; }
+
+        .floating-btns {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .float-btn {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.2s;
+            opacity: 0.7;
+        }
+
+        .float-btn:hover { opacity: 1; transform: scale(1.05); }
+
+    </style>
+</head>
+<body>
+    <div class="top-nav">
+        <h1>AI Conversation Viewer</h1>
+        <button class="theme-toggle" id="themeToggle" title="Toggle Theme">
+            <i class="fa-solid fa-moon"></i>
+        </button>
+    </div>
+
+    <div class="container">
+        <div class="glass-panel">
+            <div class="controls-row">
+                <input type="file" id="dirPicker" webkitdirectory directory multiple style="display: none;" />
+                <button class="btn" onclick="document.getElementById('dirPicker').click()">
+                    <i class="fa-solid fa-folder-open"></i> Select Brain Folder
+                </button>
+                <select id="convoSelect" style="display: none;">
+                    <option value="">Select a conversation...</option>
+                </select>
+                <button class="btn secondary" id="exportMdBtn" style="display: none;">
+                    <i class="fa-solid fa-download"></i> Markdown
+                </button>
+                <button class="btn secondary" id="exportHtmlBtn" style="display: none;">
+                    <i class="fa-solid fa-code"></i> HTML
+                </button>
+            </div>
+
+            <div class="filters" id="filtersPanel" style="display: none;">
+                <input type="text" id="searchInput" placeholder="Search in conversation..." />
+                
+                <label class="filter-label">
+                    <input type="checkbox" class="msg-filter" value="user" checked> Jay
+                </label>
+                <label class="filter-label">
+                    <input type="checkbox" class="msg-filter" value="model" checked> Antigravity
+                </label>
+                <label class="filter-label">
+                    <input type="checkbox" class="msg-filter" value="system" checked> System
+                </label>
+                <label class="filter-label">
+                    <input type="checkbox" id="toolFilter" checked> Tool Calls
+                </label>
+            </div>
+        </div>
+
+        <div id="log-container"></div>
+    </div>
+
+    <div class="floating-btns" id="floatingBtns" style="display: none;">
+        <button class="float-btn" onclick="window.scrollTo({top: 0, behavior: 'smooth'})" title="Scroll to Top">
+            <i class="fa-solid fa-arrow-up"></i>
+        </button>
+        <button class="float-btn" onclick="window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})" title="Scroll to Bottom">
+            <i class="fa-solid fa-arrow-down"></i>
+        </button>
+    </div>
+
+    <script>
+        // Setup Marked.js
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
+        // Theme Handling
+        const themeToggle = document.getElementById('themeToggle');
+        const hljsTheme = document.getElementById('hljs-theme');
+        let currentTheme = localStorage.getItem('theme') || 'dark';
+        
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            themeToggle.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-sun"></i>' : '<i class="fa-solid fa-moon"></i>';
+            hljsTheme.href = theme === 'dark' 
+                ? 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css';
+            localStorage.setItem('theme', theme);
+            currentTheme = theme;
+        }
+        applyTheme(currentTheme);
+
+        themeToggle.addEventListener('click', () => {
+            applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        });
+
+        let allFiles = [];
+        let currentConversationData = [];
+
+        const dirPicker = document.getElementById('dirPicker');
+        const convoSelect = document.getElementById('convoSelect');
+        const logContainer = document.getElementById('log-container');
+        const filtersPanel = document.getElementById('filtersPanel');
+        const searchInput = document.getElementById('searchInput');
+        const filterCheckboxes = document.querySelectorAll('.msg-filter');
+        const toolFilter = document.getElementById('toolFilter');
+        const exportMdBtn = document.getElementById('exportMdBtn');
+        const exportHtmlBtn = document.getElementById('exportHtmlBtn');
+        const floatingBtns = document.getElementById('floatingBtns');
+
+        // Copy button event delegation
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('copy-btn')) {
+                const codeBlock = e.target.nextElementSibling;
+                navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+                    const originalText = e.target.innerHTML;
+                    e.target.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                    setTimeout(() => e.target.innerHTML = originalText, 2000);
+                });
+            } else if (e.target && e.target.parentElement && e.target.parentElement.classList.contains('copy-btn')) {
+                 const btn = e.target.parentElement;
+                 const codeBlock = btn.nextElementSibling;
+                 navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                    setTimeout(() => btn.innerHTML = originalText, 2000);
+                });
+            }
+        });
+
+        function extractTitle(lines) {
+            for (let line of lines) {
+                try {
+                    const parsed = JSON.parse(line);
+                    if ((parsed.source === 'USER_EXPLICIT' || parsed.type === 'USER_INPUT') && parsed.content) {
+                        let text = parsed.content.trim();
+                        if (text.startsWith('<USER_REQUEST>')) {
+                            const match = text.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
+                            if (match) text = match[1].trim();
+                        }
+                        return text.length > 50 ? text.substring(0, 50) + '...' : text;
+                    }
+                } catch (e) {}
+            }
+            return "Untitled Conversation";
+        }
+
+        async function parseDirectory(files) {
+            allFiles = Array.from(files).filter(f => f.name === 'transcript.jsonl' || f.name === 'transcript_full.jsonl');
+            
+            const convoMap = new Map(); // id -> { files, title, count }
+            
+            logContainer.innerHTML = '<p style="text-align:center;">Analyzing conversations...</p>';
+
+            for (const f of allFiles) {
+                const parts = f.webkitRelativePath.split('/');
+                if (parts.length > 1) {
+                    const id = parts[1];
+                    if (!convoMap.has(id)) convoMap.set(id, { files: [], title: id });
+                    convoMap.get(id).files.push(f);
+                }
+            }
+
+            // Extract titles
+            for (const [id, data] of convoMap.entries()) {
+                const f = data.files.find(x => x.name === 'transcript.jsonl') || data.files[0];
+                const text = await f.text();
+                const lines = text.split('\n').filter(l => l.trim() !== '');
+                data.title = extractTitle(lines);
+                data.count = lines.length;
+            }
+
+            convoSelect.innerHTML = '<option value="">Select a conversation...</option>';
+            Array.from(convoMap.entries())
+                .sort((a, b) => b[1].count - a[1].count) // Sort by length
+                .forEach(([id, data]) => {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = `[${data.count} msgs] ${data.title}`;
+                    convoSelect.appendChild(option);
+            });
+
+            convoSelect.style.display = 'block';
+            logContainer.innerHTML = '<p style="text-align:center;">Select a conversation to view.</p>';
+        }
+
+        dirPicker.addEventListener('change', (event) => {
+            parseDirectory(event.target.files);
+        });
+
+        function toggleToolCall(element) {
+            const body = element.nextElementSibling;
+            const icon = element.querySelector('i');
+            if (body.classList.contains('expanded')) {
+                body.classList.remove('expanded');
+                icon.className = 'fa-solid fa-chevron-right';
+            } else {
+                body.classList.add('expanded');
+                icon.className = 'fa-solid fa-chevron-down';
+            }
+        }
+
+        // Global so we can call it inline
+        window.toggleToolCall = toggleToolCall;
+
+        function renderConversation() {
+            logContainer.innerHTML = '';
+            const query = searchInput.value.toLowerCase();
+            const showUser = document.querySelector('.msg-filter[value="user"]').checked;
+            const showModel = document.querySelector('.msg-filter[value="model"]').checked;
+            const showSystem = document.querySelector('.msg-filter[value="system"]').checked;
+            const showTools = toolFilter.checked;
+
+            let visibleCount = 0;
+
+            currentConversationData.forEach((parsed, index) => {
+                let sourceClass = 'system';
+                let sourceName = 'System';
+                let icon = 'fa-robot';
+                
+                if (parsed.source === 'USER_EXPLICIT' || parsed.type === 'USER_INPUT') {
+                    sourceClass = 'user';
+                    sourceName = 'Jay';
+                    icon = 'fa-user';
+                }
+                else if (parsed.source === 'MODEL' || parsed.type === 'PLANNER_RESPONSE') {
+                    sourceClass = 'model';
+                    sourceName = 'Antigravity';
+                    icon = 'fa-bolt';
+                }
+
+                // Filtering
+                if (!showUser && sourceClass === 'user') return;
+                if (!showModel && sourceClass === 'model') return;
+                if (!showSystem && sourceClass === 'system') return;
+
+                const hasContent = parsed.content && parsed.content.trim() !== '';
+                const hasTools = parsed.tool_calls && parsed.tool_calls.length > 0;
+
+                if (!hasContent && (!hasTools || !showTools)) return;
+
+                // Searching
+                const contentStr = parsed.content || '';
+                const toolStr = hasTools ? JSON.stringify(parsed.tool_calls) : '';
+                if (query && !contentStr.toLowerCase().includes(query) && !toolStr.toLowerCase().includes(query)) {
+                    return;
+                }
+
+                visibleCount++;
+
+                const div = document.createElement('div');
+                div.className = `message ${sourceClass}`;
+                
+                const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleString() : '';
+                
+                let html = `<div class="message-header">
+                                <span><i class="fa-solid ${icon}"></i> ${sourceName}</span>
+                                <span class="timestamp">${timestamp}</span>
+                            </div>`;
+                
+                if (hasContent) {
+                    let text = parsed.content;
+                    // Clean up <USER_REQUEST> tags visually
+                    text = text.replace(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/g, '**User Request:**\n$1');
+                    text = text.replace(/<ADDITIONAL_METADATA>([\s\S]*?)<\/ADDITIONAL_METADATA>/g, '');
+
+                    let rendered = marked.parse(text);
+
+                    // Inject copy buttons into pre tags
+                    rendered = rendered.replace(/<pre><code/g, '<pre><button class="copy-btn"><i class="fa-solid fa-copy"></i> Copy</button><code');
+
+                    html += `<div class="markdown-body">${rendered}</div>`;
+                }
+
+                if (hasTools && showTools) {
+                    parsed.tool_calls.forEach(tc => {
+                        const tName = tc.name || (tc.function && tc.function.name) || 'unknown_tool';
+                        const args = tc.arguments || (tc.function && tc.function.arguments) || tc;
+                        let argsStr = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+                        try { if(typeof args === 'string') argsStr = JSON.stringify(JSON.parse(args), null, 2); } catch(e){}
+
+                        html += `
+                            <div class="tool-call-container">
+                                <div class="tool-call-header" onclick="toggleToolCall(this)">
+                                    <i class="fa-solid fa-chevron-right"></i>
+                                    <span><i class="fa-solid fa-wrench"></i> ${tName}</span>
+                                </div>
+                                <div class="tool-call-body">${escapeHtml(argsStr)}</div>
+                            </div>
+                        `;
+                    });
+                }
+
+                div.innerHTML = html;
+                logContainer.appendChild(div);
+            });
+
+            if (visibleCount === 0) {
+                logContainer.innerHTML = '<p style="text-align:center;">No messages match your filters.</p>';
+            }
+        }
+
+        convoSelect.addEventListener('change', async (event) => {
+            const convoId = event.target.value;
+            if (!convoId) {
+                filtersPanel.style.display = 'none';
+                exportMdBtn.style.display = 'none';
+                exportHtmlBtn.style.display = 'none';
+                floatingBtns.style.display = 'none';
+                logContainer.innerHTML = '';
+                return;
+            }
+
+            logContainer.innerHTML = '<p style="text-align:center;">Loading transcript...</p>';
+            
+            const file = allFiles.find(f => f.webkitRelativePath.includes(convoId) && f.name === 'transcript_full.jsonl') || 
+                         allFiles.find(f => f.webkitRelativePath.includes(convoId) && f.name === 'transcript.jsonl');
+
+            if (file) {
+                const text = await file.text();
+                const lines = text.split('\n').filter(l => l.trim() !== '');
+                
+                currentConversationData = [];
+                lines.forEach(line => {
+                    try { currentConversationData.push(JSON.parse(line)); } catch(e) {}
+                });
+
+                filtersPanel.style.display = 'flex';
+                exportMdBtn.style.display = 'flex';
+                exportHtmlBtn.style.display = 'flex';
+                floatingBtns.style.display = 'flex';
+                
+                renderConversation();
+            }
+        });
+
+        // Event listeners for filters
+        searchInput.addEventListener('input', () => renderConversation());
+        filterCheckboxes.forEach(cb => cb.addEventListener('change', () => renderConversation()));
+        toolFilter.addEventListener('change', () => renderConversation());
+
+        // Export functionality
+        function downloadFile(filename, text) {
+            const element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+            element.setAttribute('download', filename);
+            element.style.display = 'none';
+            document.body.appendChild(element);
+            element.click();
+            document.body.removeChild(element);
+        }
+
+        exportMdBtn.addEventListener('click', () => {
+            if (!currentConversationData.length) return;
+            let md = `# Conversation Export\n\n`;
+            currentConversationData.forEach(p => {
+                if (p.content) {
+                    const author = (p.source === 'USER_EXPLICIT' || p.type === 'USER_INPUT') ? 'Jay' : 'Antigravity';
+                    let text = p.content.replace(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/g, '**User Request:**\n$1');
+                    text = text.replace(/<ADDITIONAL_METADATA>([\s\S]*?)<\/ADDITIONAL_METADATA>/g, '');
+                    md += `### ${author}\n\n${text}\n\n---\n\n`;
+                }
+            });
+            downloadFile('conversation_export.md', md);
+        });
+
+        exportHtmlBtn.addEventListener('click', () => {
+            // Simplistic HTML export by cloning styles and log container
+            const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Conversation Export</title>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+                <style>
+                    body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
+                    .message { padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                    .user { background: #1e293b; border-left: 4px solid #3b82f6; }
+                    .model { background: #1e293b; border-left: 4px solid #10b981; }
+                    .system { background: #0f172a; border-left: 4px solid #ef4444; }
+                    .message-header { font-weight: bold; margin-bottom: 10px; color: #94a3b8; }
+                    pre { background: #000; padding: 10px; border-radius: 5px; overflow-x: auto; }
+                    .tool-call-container { background: #334155; padding: 10px; border-radius: 5px; margin-top: 10px; }
+                    .tool-call-header { font-weight: bold; margin-bottom: 5px; }
+                </style>
+            </head>
+            <body>
+                <h1>Conversation Export</h1>
+                ${logContainer.innerHTML}
+            </body>
+            </html>`;
+            downloadFile('conversation_export.html', htmlContent);
+        });
+
+        function escapeHtml(unsafe) {
+            return (unsafe || '')
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
