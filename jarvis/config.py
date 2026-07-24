@@ -36,6 +36,27 @@ class Settings(BaseSettings):
     db_password: Optional[str] = None
     database_url: Optional[str] = None
 
+    # ── Safety & Permission Tiers (PRD §5.6) ──────────────────────────────────
+    # Tier options: read_only | propose_diff | execute_with_confirmation
+    executor_permission_tier: str = "execute_with_confirmation"
+    # Comma-separated allowed dirs — empty means ALL directories allowed
+    executor_whitelist_dirs: str = ""
+    # Comma-separated allowed command prefixes — empty means ALL languages allowed
+    executor_whitelist_commands: str = "python,java,node,javac,gcc,g++,make,git"
+
+    # ── Proactive Protocols (PRD §5.2) ────────────────────────────────────────
+    morning_protocol_time: str = "07:30"   # HH:MM IST
+    evening_protocol_time: str = "21:00"   # HH:MM IST
+
+    # ── Trading / Stocks (PRD §5.5) ───────────────────────────────────────────
+    trading_budget_min: int = 10000   # ₹ INR
+    trading_budget_max: int = 50000   # ₹ INR
+    virustotal_api_key: Optional[str] = None   # Optional: for URL reputation checks
+
+    # ── Reliability (PRD §5.8) ────────────────────────────────────────────────
+    # Max latency (ms) before logging a regression warning
+    latency_warning_threshold_ms: int = 10000
+
     class Config:
         import os
         env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")

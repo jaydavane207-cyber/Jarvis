@@ -1,4 +1,4 @@
-## JARVIS Dependencies
+## JARVIS Dependencies v2.0
 ## Install: pip install -r requirements.txt
 
 # ── Core server ──────────────────────────────────────────────────────────────
@@ -11,6 +11,7 @@ pydantic-settings
 # ── HTTP clients ─────────────────────────────────────────────────────────────
 requests
 httpx
+aiofiles                   # Async file operations (audit log)
 
 # ── AI / LLM ─────────────────────────────────────────────────────────────────
 anthropic                  # Cloud LLM (Anthropic Claude) — optional, needs API key
@@ -44,3 +45,14 @@ gotrue
 
 # ── Telephony ────────────────────────────────────────────────────────────────
 twilio
+
+# ── Trading / Stocks (PRD §5.5) ──────────────────────────────────────────────
+yfinance                   # Free NSE/BSE market data (.NS / .BO suffix)
+python-dateutil            # Date parsing for tax-lot calculations
+
+# ── Earnings Report Ingestion (PRD §5.5) ─────────────────────────────────────
+pdfminer.six               # PDF text extraction for quarterly reports
+
+# ── Scam Detection — Optional (PRD §5.4) ─────────────────────────────────────
+# vt-py                    # VirusTotal API — install if VIRUSTOTAL_API_KEY is set
+#                          # pip install vt-py

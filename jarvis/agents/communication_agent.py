@@ -92,10 +92,10 @@ class CommunicationAgent:
 
     def _determine_mode(self, message: str) -> str:
         msg_lower = message.lower()
-        if any(k in msg_lower for k in _CONTACTS_KEYWORDS):
-            return "contacts"
         if any(k in msg_lower for k in _VOICE_CALL_KEYWORDS):
             return "voice_call"
+        if any(k in msg_lower for k in _CONTACTS_KEYWORDS):
+            return "contacts"
         if any(k in msg_lower for k in _TRANSLATE_KEYWORDS):
             return "translate"
         if any(k in msg_lower for k in _EMOTION_KEYWORDS):

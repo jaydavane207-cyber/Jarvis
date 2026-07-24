@@ -53,8 +53,16 @@ async def lifespan(app: FastAPI):
     """Start background tasks on startup; clean up on shutdown."""
     asyncio.create_task(reminder_checker())
     asyncio.create_task(crm_checker())
-    logger.info("✅ JARVIS backend started. Reminder & CRM checkers running.")
+    asyncio.create_task(protocol_scheduler())
+    asyncio.create_task(shadow_portfolio_evaluator())
+    logger.info(
+        "✅ JARVIS v2.0 backend started. "
+        "Reminder, CRM, Protocol scheduler, and Shadow Portfolio evaluator running."
+    )
     yield
+    # Pause all watchdogs on shutdown
+    from .safety.kill_switch import kill_switch
+    kill_switch.pause(reason="Server shutdown")
     logger.info("JARVIS backend shutting down.")
 
 
@@ -62,8 +70,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="JARVIS Backend",
-    description="The core routing, memory, and specialized agents powering JARVIS.",
-    version="1.0.0",
+    description="The core routing, memory, and specialized agents powering JARVIS v2.0 (PRD-aligned).",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -72,10 +80,8 @@ app = FastAPI(
 async def favicon():
     return Response(status_code=204)
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Health check endpoint used by Railway and uptime monitors."""
-    return {"status": "healthy", "service": "JARVIS", "version": "1.0.0"}
+# Detailed health check is defined below
+
 
 # CORS — allow Railway domain + localhost for dev
 _ALLOWED_ORIGINS = [
@@ -204,7 +210,85 @@ async def crm_checker() -> None:
         await asyncio.sleep(86400)
 
 
+# ── Protocol Scheduler (Morning & Evening Briefings) ──────────────────────────
+
+async def protocol_scheduler() -> None:
+    """Fire morning and evening briefings at configured times."""
+    from datetime import time as dt_time
+    from .safety.kill_switch import kill_switch
+
+    try:
+        morning_parts = settings.morning_protocol_time.split(":")
+        evening_parts = settings.evening_protocol_time.split(":")
+        morning_t = dt_time(int(morning_parts[0]), int(morning_parts[1]))
+        evening_t = dt_time(int(evening_parts[0]), int(evening_parts[1]))
+    except Exception:
+        morning_t = dt_time(7, 30)
+        evening_t = dt_time(21, 0)
+
+    logger.info(
+        f"Protocol Scheduler started | Morning: {morning_t} | Evening: {evening_t}"
+    )
+
+    last_morning = None
+    last_evening = None
+
+    while True:
+        await kill_switch.wait_if_paused()
+        await asyncio.sleep(60)
+
+        from datetime import datetime, date
+        now = datetime.now()
+        today = now.date()
+        ct = now.time().replace(second=0, microsecond=0)
+
+        if ct.hour == morning_t.hour and ct.minute == morning_t.minute and last_morning != today:
+            last_morning = today
+            try:
+                text = await router.protocol_agent.morning_briefing(router.llm)
+                await manager.broadcast(
+                    json.dumps({"type": "system", "text": f"🌅 Morning Protocol:\n{text}"})
+                )
+                logger.info("Protocol Scheduler: Morning Protocol delivered")
+            except Exception as exc:
+                logger.error(f"Protocol scheduler morning error: {exc}")
+
+        if ct.hour == evening_t.hour and ct.minute == evening_t.minute and last_evening != today:
+            last_evening = today
+            try:
+                text = await router.protocol_agent.evening_briefing(router.llm)
+                await manager.broadcast(
+                    json.dumps({"type": "system", "text": f"🌙 Evening Wind-Down:\n{text}"})
+                )
+                logger.info("Protocol Scheduler: Evening Protocol delivered")
+            except Exception as exc:
+                logger.error(f"Protocol scheduler evening error: {exc}")
+
+
+# ── Shadow Portfolio Evaluator ─────────────────────────────────────────────────
+
+async def shadow_portfolio_evaluator() -> None:
+    """Run shadow portfolio outcome evaluation daily."""
+    from .safety.kill_switch import kill_switch
+    while True:
+        await kill_switch.wait_if_paused()
+        await asyncio.sleep(86400)  # run once per day
+        try:
+            updated = router.shadow_portfolio.evaluate_outcomes()
+            if updated:
+                logger.info(f"Shadow Portfolio: {len(updated)} outcomes evaluated")
+                await manager.broadcast(
+                    json.dumps({
+                        "type": "system",
+                        "text": f"📊 Shadow Portfolio: {len(updated)} trade(s) evaluated today."
+                    })
+                )
+        except Exception as exc:
+            logger.error(f"Shadow portfolio evaluator error: {exc}")
+
+
 # ── REST Endpoints ─────────────────────────────────────────────────────────────
+
 
 @app.get("/", include_in_schema=False)
 async def root(username: str = Depends(verify_credentials)):
@@ -251,24 +335,134 @@ async def privacy_ui(username: str = Depends(verify_credentials)):
     return HTMLResponse("Privacy UI not found.", status_code=404)
 
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check — returns server status and model info."""
+    """Health check — returns server status, model info, and degradation mode."""
+    from .infra.degradation_manager import degradation_manager
+    from .safety.kill_switch import kill_switch
     return {
-        "status":       "online",
-        "model":        settings.local_model,
-        "cloud_model":  settings.cloud_model,
-        "connections":  manager.connection_count(),
+        "status":           "online",
+        "version":          "2.0.0",
+        "model":            settings.local_model,
+        "cloud_model":      settings.cloud_model,
+        "connections":      manager.connection_count(),
+        "kill_switch":      kill_switch.status(),
+        "degradation_mode": degradation_manager.mode.value,
     }
 
 
 @app.get("/stats")
 async def stats():
-    """Live dashboard metrics — polled by the dashboard UI (no auth required;
-    the /dashboard page itself is auth-guarded, so these metrics are safe)."""
+    """Live dashboard metrics — polled by the dashboard UI."""
     data = router.get_stats()
     data["connections"] = manager.connection_count()
     return data
+
+
+# ── Kill Switch Endpoints ──────────────────────────────────────────────────────
+
+@app.post("/kill-switch/pause", tags=["Safety"])
+async def kill_switch_pause(reason: str = "Manual REST command"):
+    """Pause all JARVIS background agents immediately."""
+    from .safety.kill_switch import kill_switch
+    kill_switch.pause(reason=reason)
+    return {"status": "paused", "reason": reason}
+
+
+@app.post("/kill-switch/resume", tags=["Safety"])
+async def kill_switch_resume():
+    """Resume all JARVIS background agents."""
+    from .safety.kill_switch import kill_switch
+    kill_switch.resume()
+    return {"status": "resumed"}
+
+
+@app.get("/kill-switch/status", tags=["Safety"])
+async def kill_switch_status():
+    """Get current kill switch state."""
+    from .safety.kill_switch import kill_switch
+    return kill_switch.status()
+
+
+# ── System Status Endpoint ─────────────────────────────────────────────────────
+
+@app.get("/system-status", tags=["Reliability"])
+async def system_status():
+    """Full system status: degradation mode, latency, kill switch, shadow portfolio."""
+    from .infra.degradation_manager import degradation_manager
+    from .infra.latency_tracker import latency_tracker
+    from .safety.kill_switch import kill_switch
+    return {
+        "degradation": degradation_manager.status(),
+        "kill_switch":  kill_switch.status(),
+        "latency_24h":  latency_tracker.get_summary(hours=24),
+        "connections":  manager.connection_count(),
+    }
+
+
+# ── Audit Log Endpoint ─────────────────────────────────────────────────────────
+
+@app.get("/audit-log", tags=["Safety"])
+async def get_audit_log(limit: int = 50, username: str = Depends(verify_credentials)):
+    """Return recent audit log entries (auth required)."""
+    from .safety.audit_log import audit_log
+    return {"entries": audit_log.get_recent(limit=limit)}
+
+
+# ── Latency Dashboard ──────────────────────────────────────────────────────────
+
+@app.get("/api/latency", tags=["Reliability"])
+async def get_latency(hours: int = 24):
+    """Return per-agent latency summary."""
+    from .infra.latency_tracker import latency_tracker
+    return latency_tracker.get_summary(hours=hours)
+
+
+# ── Shadow Portfolio Endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/shadow-portfolio", tags=["Trading"])
+async def get_shadow_portfolio(username: str = Depends(verify_credentials)):
+    """Return shadow portfolio trades and win-rate stats."""
+    trades = router.shadow_portfolio.get_all_trades(50)
+    stats = router.shadow_portfolio.calculate_win_rate()
+    return {"trades": trades, "stats": stats, "summary": router.shadow_portfolio.get_portfolio_summary()}
+
+
+@app.post("/api/shadow-portfolio/add", tags=["Trading"])
+async def add_shadow_trade(
+    ticker: str,
+    action: str,
+    price: float,
+    qty: int = 1,
+    signal_summary: str = "",
+    username: str = Depends(verify_credentials),
+):
+    """Manually add a trade recommendation to the shadow portfolio."""
+    result = router.shadow_portfolio.manual_add(ticker, action, price, qty, signal_summary)
+    return {"result": result}
+
+
+# ── Budget Endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/api/budget/add", tags=["Budget"])
+async def add_budget_transaction(
+    amount: float,
+    tx_type: str,
+    category: str = "Miscellaneous",
+    description: str = "",
+    username: str = Depends(verify_credentials),
+):
+    """Manually add a budget transaction."""
+    row_id = router.budget_agent.add_transaction(amount, tx_type, category, description)
+    return {"id": row_id, "status": "ok" if row_id > 0 else "error"}
+
+
+@app.get("/api/budget/summary", tags=["Budget"])
+async def get_budget_summary(username: str = Depends(verify_credentials)):
+    """Return this month's spending summary and anomalies."""
+    summary = router.budget_agent.get_monthly_summary()
+    anomalies = router.budget_agent.detect_anomalies()
+    return {"summary": summary, "anomalies": anomalies}
 
 
 @app.post("/clear_logs")

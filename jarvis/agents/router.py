@@ -151,11 +151,54 @@ _PERSONAL_KEYWORDS = (
     "track sleep", "logged sleep", "how much did i sleep", "sleep log",
     "track diet", "ate today", "calories", "food log",
     "track exercise", "workout", "ran today", "exercise log",
-    "expense", "spent", "budget", "financial log", "money spent",
     "creative idea", "brainstorm", "design suggestion", "creative partner",
     "preferences", "remember this", "forget this", "my habits",
 )
 
+_TRADING_KEYWORDS = (
+    "stock", "share", "nse", "bse", "nifty", "sensex", "market",
+    "invest", "investment", "buy stock", "sell stock", "hold stock",
+    "portfolio", "shadow portfolio", "paper trading", "trade",
+    "reliance", "tcs", "infosys", "hdfc", "icici", "sbi", "wipro",
+    "stock price", "market price", "52 week", "moving average",
+    "rsi", "macd", "technical analysis", "fundamental analysis",
+    "capital gains", "stcg", "ltcg", "tax lot", "dividend",
+    "earnings report", "quarterly results", "annual report",
+)
+
+_BUDGET_KEYWORDS = (
+    "add expense", "log expense", "log income", "add income",
+    "budget", "monthly budget", "spending", "how much did i spend",
+    "expense tracker", "track expense", "finance tracker",
+    "monthly summary", "spending anomaly", "unusual spending",
+)
+
+_SCAM_KEYWORDS = (
+    "is this a scam", "check this link", "is this legit", "is this legitimate",
+    "scam", "fraud", "phishing", "suspicious message", "fake",
+    "check this url", "is this website safe", "safe to click",
+    "upi fraud", "kyc fraud", "otp fraud", "verify this",
+    "spam message", "suspicious email", "check this qr",
+)
+
+_PROTOCOL_KEYWORDS = (
+    "morning briefing", "morning protocol", "good morning jarvis",
+    "evening briefing", "evening wind down", "wind down",
+    "what's happening today", "today's summary", "daily briefing",
+    "market overview", "market update", "how's the market",
+)
+
+_KILL_SWITCH_KEYWORDS = (
+    "jarvis stop everything", "jarvis pause", "kill switch",
+    "stop all agents", "pause jarvis", "emergency stop",
+    "jarvis resume", "resume jarvis", "restart agents",
+)
+
+_MEMORY_KEYWORDS = (
+    "memory review", "stale memory", "what do you remember",
+    "update your memory", "forget that", "remember that",
+    "what's in your memory", "memory decay",
+)
 
 
 class AgentRouter:
@@ -182,6 +225,32 @@ class AgentRouter:
         self.debugger_agent      = DebuggerAgent()
         self.arvr_agent          = ArVrAgent()
         self.communication_agent.router = self  # Inject router for cross-agent features
+
+        # ── New PRD agents ─────────────────────────────────────────────────────
+        from .trading_agent import TradingAgent
+        from .shadow_portfolio import ShadowPortfolio
+        from .earnings_agent import EarningsAgent
+        from .budget_agent import BudgetAgent
+        from .protocol_agent import ProtocolAgent
+        from .scam_agent import ScamAgent
+        from ..safety.kill_switch import kill_switch
+        from ..safety.audit_log import audit_log
+        from ..infra.latency_tracker import latency_tracker
+        from ..memory.memory_decay import memory_decay
+        from ..memory.relationship_circles import relationship_circles
+
+        self.trading_agent       = TradingAgent()
+        self.shadow_portfolio    = ShadowPortfolio()
+        self.earnings_agent      = EarningsAgent()
+        self.budget_agent        = BudgetAgent()
+        self.protocol_agent      = ProtocolAgent()
+        self.scam_agent          = ScamAgent()
+        self.kill_switch         = kill_switch
+        self.audit_log           = audit_log
+        self.latency_tracker     = latency_tracker
+        self.memory_decay        = memory_decay
+        self.relationship_circles = relationship_circles
+
         self.llm                 = HybridLLMRouter()
         if settings.supabase_enabled:
             self.memory              = SupabaseChatStore()
@@ -361,6 +430,54 @@ class AgentRouter:
                 full_reply += chunk
                 yield chunk
 
+        elif any(k in msg_lower for k in _KILL_SWITCH_KEYWORDS):
+            agent_name = "KillSwitch"
+            if "resume" in msg_lower or "restart" in msg_lower:
+                self.kill_switch.resume()
+                full_reply = self.kill_switch.status_text()
+            else:
+                self.kill_switch.pause(reason="Voice/text command from Jay")
+                full_reply = self.kill_switch.status_text()
+            yield full_reply
+
+        elif any(k in msg_lower for k in _SCAM_KEYWORDS):
+            agent_name = "ScamAgent"
+            async for chunk in self.scam_agent.handle_stream(augmented, self.llm, history, semantic, voice_mode):
+                full_reply += chunk
+                yield chunk
+
+        elif any(k in msg_lower for k in _TRADING_KEYWORDS):
+            agent_name = "TradingAgent"
+            async for chunk in self.trading_agent.handle_stream(
+                augmented, self.llm, history, semantic, voice_mode,
+                budget_min=settings.trading_budget_min,
+                budget_max=settings.trading_budget_max,
+            ):
+                full_reply += chunk
+                yield chunk
+
+        elif any(k in msg_lower for k in _BUDGET_KEYWORDS):
+            agent_name = "BudgetAgent"
+            async for chunk in self.budget_agent.handle_stream(augmented, self.llm, history, semantic, voice_mode):
+                full_reply += chunk
+                yield chunk
+
+        elif any(k in msg_lower for k in _PROTOCOL_KEYWORDS):
+            agent_name = "ProtocolAgent"
+            try:
+                text = await self.protocol_agent.morning_briefing(self.llm, voice_mode)
+                full_reply = text
+                yield text
+            except Exception as exc:
+                full_reply = f"Protocol agent error: {exc}"
+                yield full_reply
+
+        elif any(k in msg_lower for k in _MEMORY_KEYWORDS):
+            agent_name = "MemoryDecay"
+            candidates = self.memory_decay.get_stale_candidates()
+            full_reply = self.memory_decay.format_review_prompt(candidates)
+            yield full_reply
+
         else:
             agent_name = "GeneralLLM"
             messages = (
@@ -375,7 +492,12 @@ class AgentRouter:
         self._persist_reply(full_reply, message, agent_name, t0)
 
         # Log all streaming agents to tool_logs for the dashboard
-        if agent_name in ("ExecutorAgent", "ResearchAgent", "PlannerAgent", "CoderAgent", "TutorAgent", "ImageAgent", "ProductivityAgent", "CommunicationAgent", "PersonalAgent"):
+        if agent_name in (
+            "ExecutorAgent", "ResearchAgent", "PlannerAgent", "CoderAgent",
+            "TutorAgent", "ImageAgent", "ProductivityAgent", "CommunicationAgent",
+            "PersonalAgent", "TradingAgent", "BudgetAgent", "ScamAgent",
+            "EarningsAgent", "ProtocolAgent", "KillSwitch", "MemoryDecay",
+        ):
             self._log_tool(agent_name, message, full_reply)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
