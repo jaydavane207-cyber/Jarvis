@@ -1333,9 +1333,86 @@
                         }
                     }
                 }
+            
             } catch (err) {
-                console.log("No backend API detected. Running in offline/local mode.");
+                console.log("No backend API detected. Loading Demo Mode...");
+                
+                // Inject Demo Mode
+                document.getElementById('commandBar').style.display = 'flex';
+                document.getElementById('rightSidebar').style.display = 'flex';
+                const initState = document.getElementById('initial-state');
+                if(initState) initState.style.display = 'none';
+                
+                document.getElementById('modalSessionList').innerHTML = `
+                    <div class="session-item pinned"><div class="s-info"><div class="s-title">JARVIS Style UI Redesign</div><div class="s-meta"><span><i class="fa-solid fa-hashtag"></i> 45</span><span><i class="fa-regular fa-clock"></i> 7/25/2026</span></div></div><div class="s-badges"><span class="s-badge pin"><i class="fa-solid fa-star"></i> PINNED</span></div></div>
+                    <div class="session-item"><div class="s-info"><div class="s-title">Advanced Glassmorphism UI</div><div class="s-meta"><span><i class="fa-solid fa-hashtag"></i> 12</span><span><i class="fa-regular fa-clock"></i> 7/24/2026</span></div></div><div class="s-badges"></div></div>
+                    <div class="session-item"><div class="s-info"><div class="s-title">Open Web Application</div><div class="s-meta"><span><i class="fa-solid fa-hashtag"></i> 89</span><span><i class="fa-regular fa-clock"></i> 7/24/2026</span></div></div><div class="s-badges"></div></div>
+                `;
+                
+                document.getElementById('activeSessionTitle').innerText = 'JARVIS Style UI Redesign';
+                document.getElementById('activeSessionCount').innerHTML = '<i class="fa-solid fa-hashtag"></i> 45 MSGS';
+                document.getElementById('activeSessionDate').innerHTML = '<i class="fa-regular fa-clock"></i> 7/25/2026';
+                
+                document.getElementById('statTotal').innerText = '45';
+                document.getElementById('statDuration').innerText = '35m';
+                document.getElementById('statJay').innerText = '15';
+                document.getElementById('statAnti').innerText = '25';
+                document.getElementById('statSys').innerText = '5';
+                document.getElementById('statTools').innerText = '12';
+                
+                document.getElementById('roleDonut').style.background = `conic-gradient(var(--jay-color) 0% 33%, var(--antigravity-color) 33% 88%, var(--system-color) 88% 100%)`;
+                
+                const sparkContainer = document.getElementById('sparklineContainer');
+                if (sparkContainer) {
+                    sparkContainer.innerHTML = '';
+                    const mockChunks = [2, 5, 1, 0, 8, 12, 4, 1, 2, 9, 15, 6, 2, 1, 3, 5, 2, 1, 4, 2];
+                    const max = Math.max(...mockChunks);
+                    mockChunks.forEach(c => {
+                        const bar = document.createElement('div');
+                        bar.className = 'spark-bar';
+                        bar.style.height = `${(c / max) * 100}%`;
+                        sparkContainer.appendChild(bar);
+                    });
+                }
+                
+                document.getElementById('toolFreqList').innerHTML = `
+                    <div class="tool-freq-item"><span><i class="fa-solid fa-terminal"></i> run_command</span> <span>8</span></div>
+                    <div class="tool-freq-item"><span><i class="fa-solid fa-terminal"></i> write_to_file</span> <span>3</span></div>
+                    <div class="tool-freq-item"><span><i class="fa-solid fa-terminal"></i> view_file</span> <span>1</span></div>
+                `;
+                
+                document.getElementById('keyMomentsList').innerHTML = `
+                    <div class="key-moment-item"><i class="fa-solid fa-link" style="color:var(--tool-color)"></i> Msg 12: Chain of 3 tools</div>
+                    <div class="key-moment-item"><i class="fa-solid fa-align-left" style="color:var(--antigravity-color)"></i> Msg 24: Long output (>2k chars)</div>
+                    <div class="key-moment-item"><i class="fa-solid fa-triangle-exclamation" style="color:red"></i> Msg 38: System Error Detected</div>
+                `;
+                
+                const log1 = document.getElementById('log-container-1');
+                if (log1) {
+                    log1.innerHTML = `
+                        <div class="message msg-role-user">
+                            <div class="message-header"><span><i class="fa-solid fa-user"></i> JAY</span><span class="timestamp">[7/25/2026, 1:00:00 AM]</span></div>
+                            <div class="markdown-body"><p>Convert the single centered console panel into a 3-column HUD dashboard layout.</p></div>
+                        </div>
+                        <div class="message msg-role-model">
+                            <div class="message-header"><span><i class="fa-solid fa-bolt"></i> ANTIGRAVITY</span><span class="timestamp">[7/25/2026, 1:00:15 AM]</span></div>
+                            <div class="markdown-body"><p>I will redesign the JARVIS UI into a multi-panel command center as requested.</p></div>
+                            <div class="tool-call-container">
+                                <div class="tool-call-header"><i class="fa-solid fa-chevron-right"></i><span><i class="fa-solid fa-terminal"></i> write_to_file</span></div>
+                            </div>
+                        </div>
+                        <div class="message msg-role-system">
+                            <div class="message-header"><span><i class="fa-solid fa-microchip"></i> SYSTEM</span><span class="timestamp">[7/25/2026, 1:01:05 AM]</span></div>
+                            <div class="markdown-body"><p>File updated successfully.</p></div>
+                        </div>
+                        <div style="text-align: center; margin-top: 40px; color: var(--amber-glow); font-family: 'Rajdhani', monospace; border: 1px solid var(--amber-glow); padding: 10px; background: rgba(255, 170, 0, 0.05);">
+                            <i class="fa-solid fa-triangle-exclamation"></i> DEMO MODE ACTIVE. OFFLINE/LOCAL ACCESS DETECTED.<br>
+                            Click <strong>MOUNT DATA DIR</strong> in the top left to load your real session databanks.
+                        </div>
+                    `;
+                }
             }
+
         })();
     </script>
 </body>
