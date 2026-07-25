@@ -880,11 +880,19 @@
             container.innerHTML = '<div class="hud-loading"><div class="arc-reactor"></div><p>DECRYPTING LOG FILES...</p></div>';
             
             const sessionMeta = sessions.find(s => s.id === id);
-            const file = sessionMeta.files.find(f => f.name === 'transcript_full.jsonl') || sessionMeta.files.find(f => f.name === 'transcript.jsonl');
-
-            if (file) {
+            let text = "";
+            if (sessionMeta.files && sessionMeta.files.length > 0) {
+                const file = sessionMeta.files.find(f => f.name === 'transcript_full.jsonl') || sessionMeta.files.find(f => f.name === 'transcript.jsonl') || sessionMeta.files[0];
+                if (file) text = await file.text();
+            } else {
                 try {
-                    const text = await file.text();
+                    const res = await fetch('/api/conversations/' + id);
+                    if (res.ok) text = await res.text();
+                } catch(e) { console.error(e); }
+            }
+
+            if (text) {
+                try {
                     const lines = text.split('\n').filter(l => l.trim() !== '');
                     
                     const dataArr = [];
@@ -1302,6 +1310,34 @@
         function escapeHtml(unsafe) {
             return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
+    
+        // Auto-fetch data from backend API if available
+        (async function initData() {
+            try {
+                const res = await fetch('/api/conversations');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.length > 0) {
+                        sessions = data.map(d => ({
+                            id: d.id,
+                            title: d.title,
+                            count: d.count,
+                            date: new Date(),
+                            files: []
+                        }));
+                        log1.innerHTML = '<p style="text-align:center; color: var(--primary); font-family: \'Rajdhani\'; letter-spacing: 2px; margin-top:50px;">DATABANKS SYNCHRONIZED.</p>';
+                        openSessionBrowser();
+                        // Auto load first session
+                        if (sessions.length > 0) {
+                            loadSession(sessions[0].id, true);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.log("No backend API detected. Running in offline/local mode.");
+            }
+        })();
     </script>
 </body>
+
 </html>
