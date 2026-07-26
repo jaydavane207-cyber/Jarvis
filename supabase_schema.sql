@@ -104,3 +104,98 @@ as $$
   order by jarvis_memory.embedding <=> query_embedding
   limit match_count;
 $$;
+
+-- 6. Safety & Audit
+create table if not exists audit_log (
+    id bigint primary key generated always as identity,
+    timestamp timestamp with time zone default timezone('utc'::text, now()) not null,
+    agent text not null,
+    action_type text not null,
+    details text not null default '',
+    reasoning text not null default '',
+    tier text not null default 'execute_with_confirmation',
+    approved integer not null default 0,
+    result text not null default ''
+);
+
+-- 7. Trading & Finance (Trading DB equivalent)
+create table if not exists shadow_trades (
+    id bigint primary key generated always as identity,
+    ticker text not null,
+    action text not null check(action in ('BUY','SELL','HOLD')),
+    price_at_rec real not null,
+    qty integer not null default 1,
+    budget_used real not null default 0,
+    signal_summary text not null default '',
+    rec_date timestamp with time zone default timezone('utc'::text, now()) not null,
+    eval_30d text,
+    eval_60d text,
+    eval_90d text,
+    outcome text,
+    sector text default '',
+    notes text default ''
+);
+
+create table if not exists shadow_performance (
+    id bigint primary key generated always as identity,
+    snapshot_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    total_recs integer not null default 0,
+    wins integer not null default 0,
+    losses integer not null default 0,
+    win_rate real not null default 0.0,
+    notes text default ''
+);
+
+create table if not exists budget_transactions (
+    id bigint primary key generated always as identity,
+    amount real not null,
+    tx_type text not null,
+    category text not null,
+    description text not null,
+    timestamp timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+create table if not exists budget_categories (
+    id bigint primary key generated always as identity,
+    name text not null unique,
+    limit_amount real not null
+);
+
+-- 8. Memory Management
+create table if not exists memory_items (
+    id bigint primary key generated always as identity,
+    fact text not null,
+    status text not null default 'active',
+    last_reviewed timestamp with time zone default timezone('utc'::text, now()) not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+create table if not exists memory_review_log (
+    id bigint primary key generated always as identity,
+    fact_id bigint not null references memory_items(id) on delete cascade,
+    review_date timestamp with time zone default timezone('utc'::text, now()) not null,
+    action text not null
+);
+
+create table if not exists relationship_circles (
+    id bigint primary key generated always as identity,
+    name text not null unique,
+    tone text not null default 'neutral'
+);
+
+create table if not exists circle_members (
+    id bigint primary key generated always as identity,
+    circle_id bigint not null references relationship_circles(id) on delete cascade,
+    contact_id bigint not null references contacts(id) on delete cascade,
+    unique(circle_id, contact_id)
+);
+
+-- 9. Infrastructure & Observability
+create table if not exists latency_log (
+    id bigint primary key generated always as identity,
+    timestamp timestamp with time zone default timezone('utc'::text, now()) not null,
+    agent text not null,
+    command text not null,
+    duration_ms integer not null,
+    status text not null default 'success'
+);
