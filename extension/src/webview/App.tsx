@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import mermaid from 'mermaid';
 import { PersonalDashboard } from './PersonalDashboard';
+import { StockMarketPanel } from './StockMarketPanel';
 import './index.css';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1206,135 +1207,142 @@ const App = () => {
           <PersonalDashboard />
         </div>
       ) : (
-        <>
-          {/* ── Arc Reactor Orb ── */}
-      <div className="orb-container">
-        <div className="orb-wrapper">
-          <div className="orb-ring" />
-          <div className="orb-ring orb-ring-mid" />
-          <div className="orb-ring orb-ring-inner" />
-          <div className={`orb ${orbState}`} />
-          <div className={`orb-label ${orbState !== 'idle' ? orbState : ''}`}>{orbLabel}</div>
+        <div className="main-workspace-layout">
+          <div className="center-workspace">
+            {/* ── Arc Reactor Orb ── */}
+            <div className="orb-container">
+              <div className="orb-wrapper">
+                <div className="orb-ring" />
+                <div className="orb-ring orb-ring-mid" />
+                <div className="orb-ring orb-ring-inner" />
+                <div className={`orb ${orbState}`} />
+                <div className={`orb-label ${orbState !== 'idle' ? orbState : ''}`}>{orbLabel}</div>
+              </div>
+            </div>
+
+            {/* ── Chat ── */}
+            <div className="chat-container" ref={chatRef}>
+              {messages.length === 0 && !isThinking && !isStreaming && (
+                <div className="empty-state">
+                  <div className="empty-icon">⬡</div>
+                  <p className="empty-greeting">Good day, Jay. How may I assist you?</p>
+                  <p className="empty-hint">
+                    Type · 🎙 Speak · Say "Hey Antigravity" · Attach 📎 a file<br/>
+                    <span style={{ color: 'var(--accent, #00c8ff)', fontSize: '11px' }}>
+                      🌐 Web Search · 🏠 Smart Home · ⚡ Execute Code · 🧠 Semantic Memory · 📈 Stock Market
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
+
+              {isThinking && !isStreaming && (
+                <div className="thinking-wrapper">
+                  <span className="thinking-label">▸ ANTIGRAVITY · PROCESSING</span>
+                  <div className="thinking-dots"><span /><span /><span /></div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* ── Scroll to bottom ── */}
+            {showScrollBtn && (
+              <button
+                className="scroll-btn"
+                onClick={() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                title="Scroll to bottom"
+              >
+                <ChevronDownIcon />
+              </button>
+            )}
+
+            {/* ── Input area ── */}
+            <div className="input-area">
+              {attachedFile && (
+                <div className="file-chip">
+                  📎 <span>{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} title="Remove file">✕</button>
+                </div>
+              )}
+              {transcript && <div className="transcript-preview">🎙 {transcript}</div>}
+              {micError && <div className="mic-error">{micError}</div>}
+
+              <div className="input-container">
+                {/* Mic */}
+                <button
+                  id="jarvis-mic-btn"
+                  className={`btn btn-mic ${isListening ? 'listening' : ''}`}
+                  onClick={toggleMic}
+                  title={isListening ? 'Stop listening' : 'Voice input'}
+                  disabled={isStreaming}
+                >
+                  {isListening ? <MicOffIcon /> : <MicIcon />}
+                </button>
+
+                {/* Attach */}
+                <button
+                  id="jarvis-attach-btn"
+                  className="btn btn-attach"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach a file"
+                  disabled={isStreaming}
+                >
+                  <AttachIcon />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  style={{ display: 'none' }}
+                  accept=".txt,.py,.js,.ts,.tsx,.md,.json,.csv,.html,.css,.xml,.yaml,.yml,.java,.cpp,.c,.go,.rs,.rb,.php,.sh"
+                  onChange={handleFileChange}
+                />
+
+                {/* Text input */}
+                <input
+                  id="jarvis-text-input"
+                  className="text-input"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                  placeholder={
+                    !connected    ? 'Connecting to backend…'  :
+                    isStreaming   ? 'Antigravity is responding…'    :
+                    isListening   ? 'Listening…'               :
+                                    'Ask Antigravity anything…'
+                  }
+                  disabled={!connected || isListening || isStreaming}
+                />
+
+                {/* Mute */}
+                <button
+                  id="jarvis-mute-btn"
+                  className={`btn btn-mute ${isMuted ? 'muted' : ''}`}
+                  onClick={toggleMute}
+                  title={isMuted ? 'Unmute Antigravity' : 'Mute Antigravity voice'}
+                >
+                  {isMuted ? <MuteIcon /> : <VolumeIcon />}
+                </button>
+
+                {/* Send */}
+                <button
+                  id="jarvis-send-btn"
+                  className="btn btn-send"
+                  onClick={() => send()}
+                  disabled={!connected || !input.trim() || isThinking || isStreaming}
+                >
+                  <SendIcon /> <span className="send-label">SEND</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Stock Market Right Panel ── */}
+          <StockMarketPanel onSelectQuery={(queryText) => {
+            setInput(queryText);
+          }} />
         </div>
-      </div>
-
-      {/* ── Chat ── */}
-      <div className="chat-container" ref={chatRef}>
-        {messages.length === 0 && !isThinking && !isStreaming && (
-          <div className="empty-state">
-            <div className="empty-icon">⬡</div>
-            <p className="empty-greeting">Good day, Jay. How may I assist you?</p>
-            <p className="empty-hint">
-              Type · 🎙 Speak · Say "Hey Antigravity" · Attach 📎 a file<br/>
-              <span style={{ color: 'var(--accent, #00c8ff)', fontSize: '11px' }}>
-                🌐 Web Search · 🏠 Smart Home · ⚡ Execute Code · 🧠 Semantic Memory
-              </span>
-            </p>
-          </div>
-        )}
-
-        {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
-
-        {isThinking && !isStreaming && (
-          <div className="thinking-wrapper">
-            <span className="thinking-label">▸ ANTIGRAVITY · PROCESSING</span>
-            <div className="thinking-dots"><span /><span /><span /></div>
-          </div>
-        )}
-
-        <div ref={chatEndRef} />
-      </div>
-
-      {/* ── Scroll to bottom ── */}
-      {showScrollBtn && (
-        <button
-          className="scroll-btn"
-          onClick={() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-          title="Scroll to bottom"
-        >
-          <ChevronDownIcon />
-        </button>
-      )}
-
-      {/* ── Input area ── */}
-      <div className="input-area">
-        {attachedFile && (
-          <div className="file-chip">
-            📎 <span>{attachedFile.name}</span>
-            <button onClick={() => setAttachedFile(null)} title="Remove file">✕</button>
-          </div>
-        )}
-        {transcript && <div className="transcript-preview">🎙 {transcript}</div>}
-        {micError && <div className="mic-error">{micError}</div>}
-
-        <div className="input-container">
-          {/* Mic */}
-          <button
-            id="jarvis-mic-btn"
-            className={`btn btn-mic ${isListening ? 'listening' : ''}`}
-            onClick={toggleMic}
-            title={isListening ? 'Stop listening' : 'Voice input'}
-            disabled={isStreaming}
-          >
-            {isListening ? <MicOffIcon /> : <MicIcon />}
-          </button>
-
-          {/* Attach */}
-          <button
-            id="jarvis-attach-btn"
-            className="btn btn-attach"
-            onClick={() => fileInputRef.current?.click()}
-            title="Attach a file"
-            disabled={isStreaming}
-          >
-            <AttachIcon />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            style={{ display: 'none' }}
-            accept=".txt,.py,.js,.ts,.tsx,.md,.json,.csv,.html,.css,.xml,.yaml,.yml,.java,.cpp,.c,.go,.rs,.rb,.php,.sh"
-            onChange={handleFileChange}
-          />
-
-          {/* Text input */}
-          <input
-            id="jarvis-text-input"
-            className="text-input"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder={
-              !connected    ? 'Connecting to backend…'  :
-              isStreaming   ? 'Antigravity is responding…'    :
-              isListening   ? 'Listening…'               :
-                              'Ask Antigravity anything…'
-            }
-            disabled={!connected || isListening || isStreaming}
-          />
-
-          {/* Mute */}
-          <button
-            id="jarvis-mute-btn"
-            className={`btn btn-mute ${isMuted ? 'muted' : ''}`}
-            onClick={toggleMute}
-            title={isMuted ? 'Unmute Antigravity' : 'Mute Antigravity voice'}
-          >
-            {isMuted ? <MuteIcon /> : <VolumeIcon />}
-          </button>
-
-          {/* Send */}
-          <button
-            id="jarvis-send-btn"
-            className="btn btn-send"
-            onClick={() => send()}
-            disabled={!connected || !input.trim() || isThinking || isStreaming}
-          >
-            <SendIcon /> <span className="send-label">SEND</span>
-          </button>
-        </div>
-      </div>
-      </>
       )}
 
       {/* ── Toasts ── */}

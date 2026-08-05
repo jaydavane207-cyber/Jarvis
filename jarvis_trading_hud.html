@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS Trading HUD | Jay Davane</title>
+  <meta name="description" content="JARVIS Real-Time Trading Intelligence Dashboard — Advisory-only NSE/BSE signal monitor for Jay Davane." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Design Tokens ───────────────────────────────────────────────── */
+    :root {
+      --bg-deep:    #060b14;
+      --bg-card:    #0d1625cc;
+      --bg-glass:   rgba(13,22,37,0.82);
+      --border:     rgba(99,179,237,0.12);
+      --border-glow:rgba(99,179,237,0.35);
+
+      --blue-100: #63b3ed;
+      --blue-400: #4299e1;
+      --blue-600: #2b6cb0;
+      --green-400:#48bb78;
+      --green-glow:rgba(72,187,120,0.25);
+      --red-400:  #fc8181;
+      --red-glow: rgba(252,129,129,0.25);
+      --yellow-400:#f6e05e;
+      --yellow-glow:rgba(246,224,94,0.2);
+      --gray-400: #a0aec0;
+      --gray-600: #4a5568;
+
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-sans: 'Inter', sans-serif;
+
+      --radius: 14px;
+      --radius-sm: 8px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+      --shadow-glow: 0 0 24px rgba(99,179,237,0.18);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: #e2e8f0;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        linear-gradient(rgba(99,179,237,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,179,237,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .wrapper { position: relative; z-index: 1; padding: 0 24px 40px; max-width: 1440px; margin: 0 auto; }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 0 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--green-400);
+      box-shadow: 0 0 10px var(--green-400), 0 0 24px rgba(72,187,120,0.5);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100%{opacity:1;transform:scale(1)}
+      50%{opacity:0.6;transform:scale(1.4)}
+    }
+    .logo h1 { font-size: 1.25rem; font-weight: 700; color: #fff; letter-spacing: 0.05em; }
+    .logo h1 span { color: var(--blue-100); }
+    .header-meta { display: flex; gap: 20px; align-items: center; }
+    .badge {
+      font-size: 0.7rem; font-weight: 600; padding: 4px 10px; border-radius: 20px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .badge-advisory { background: rgba(252,129,129,0.15); color: var(--red-400); border: 1px solid rgba(252,129,129,0.3); }
+    .badge-live     { background: rgba(72,187,120,0.12);  color: var(--green-400);border: 1px solid rgba(72,187,120,0.3); }
+    #clock { font-family: var(--font-mono); font-size: 0.82rem; color: var(--gray-400); }
+    #refresh-btn {
+      background: var(--bg-glass); border: 1px solid var(--border-glow);
+      color: var(--blue-100); padding: 6px 16px; border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 0.8rem; font-family: var(--font-sans);
+      transition: all 0.2s;
+    }
+    #refresh-btn:hover { background: rgba(99,179,237,0.15); box-shadow: var(--shadow-glow); }
+
+    /* ── Capital Bar ─────────────────────────────────────────────────── */
+    .capital-bar {
+      display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr));
+      gap: 14px; margin-bottom: 28px;
+    }
+    .cap-metric {
+      background: var(--bg-glass); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 16px 20px;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .cap-metric:hover { border-color: var(--border-glow); box-shadow: var(--shadow-glow); }
+    .cap-metric label { font-size: 0.68rem; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 6px; }
+    .cap-metric .value { font-size: 1.35rem; font-weight: 700; font-family: var(--font-mono); }
+    .value-green { color: var(--green-400); }
+    .value-red   { color: var(--red-400); }
+    .value-blue  { color: var(--blue-100); }
+    .value-yellow{ color: var(--yellow-400); }
+
+    /* ── Grid ────────────────────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 20px;
+    }
+    @media(max-width:1100px){ .main-grid{ grid-template-columns:1fr 1fr; } }
+    @media(max-width:720px) { .main-grid{ grid-template-columns:1fr; } }
+
+    .card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+    .card:hover { border-color: var(--border-glow); box-shadow: var(--shadow-glow); }
+    .card-title {
+      font-size: 0.75rem; font-weight: 600; color: var(--gray-400);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+    }
+    .card-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue-100); }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+
+    /* ── Watchlist Signal Cards ──────────────────────────────────────── */
+    #watchlist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .signal-card {
+      background: rgba(13,22,37,0.9);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s;
+      cursor: default;
+    }
+    .signal-card::before {
+      content: ''; position: absolute; top: 0; left: 0;
+      width: 3px; height: 100%;
+    }
+    .signal-card.buy   { border-color: rgba(72,187,120,0.3); }
+    .signal-card.buy::before   { background: var(--green-400); box-shadow: 2px 0 16px var(--green-glow); }
+    .signal-card.sell  { border-color: rgba(252,129,129,0.3); }
+    .signal-card.sell::before  { background: var(--red-400);   box-shadow: 2px 0 16px var(--red-glow); }
+    .signal-card.watch { border-color: rgba(246,224,94,0.3); }
+    .signal-card.watch::before { background: var(--yellow-400);box-shadow: 2px 0 16px var(--yellow-glow); }
+    .signal-card.reject{ border-color: rgba(160,174,192,0.2); }
+    .signal-card.reject::before{ background: var(--gray-400); }
+    .signal-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-glow); }
+
+    .sc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .sc-ticker { font-size: 1rem; font-weight: 700; color: #fff; }
+    .sc-badge {
+      font-size: 0.65rem; font-weight: 700; padding: 3px 10px;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .badge-buy   { background:var(--green-glow);  color:var(--green-400);  border:1px solid rgba(72,187,120,0.4); }
+    .badge-sell  { background:var(--red-glow);    color:var(--red-400);    border:1px solid rgba(252,129,129,0.4); }
+    .badge-watch { background:var(--yellow-glow); color:var(--yellow-400); border:1px solid rgba(246,224,94,0.4); }
+    .badge-reject{ background:rgba(160,174,192,0.08); color:var(--gray-400); border:1px solid rgba(160,174,192,0.2); }
+
+    .sc-cmp    { font-size: 1.6rem; font-weight: 800; font-family: var(--font-mono); margin-bottom: 4px; }
+    .sc-as-of  { font-size: 0.65rem; color: var(--gray-400); margin-bottom: 12px; }
+
+    /* Confluence meter (4 bars) */
+    .confluence-meter { margin-bottom: 12px; }
+    .confluence-meter label { font-size: 0.65rem; color: var(--gray-400); margin-bottom: 5px; display: flex; justify-content: space-between; }
+    .bars { display: flex; gap: 4px; }
+    .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--gray-600); transition: background 0.4s; }
+    .bar.active-buy   { background: var(--green-400); box-shadow: 0 0 6px var(--green-glow); }
+    .bar.active-sell  { background: var(--red-400);   box-shadow: 0 0 6px var(--red-glow); }
+    .bar.active-watch { background: var(--yellow-400);box-shadow: 0 0 6px var(--yellow-glow); }
+
+    .sc-row { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--gray-400); margin-bottom: 4px; }
+    .sc-row span:last-child { color: #e2e8f0; font-family: var(--font-mono); }
+    .sc-rationale { font-size: 0.68rem; color: var(--gray-400); margin-top: 8px; line-height: 1.4; font-style: italic; }
+
+    .rsi-pill {
+      display: inline-block; font-size: 0.65rem; padding: 2px 8px; border-radius: 12px;
+      font-family: var(--font-mono); margin-right: 6px;
+    }
+    .rsi-neutral { background: rgba(99,179,237,0.12); color: var(--blue-100); }
+    .rsi-ob     { background: var(--red-glow); color: var(--red-400); }
+    .rsi-os     { background: var(--green-glow); color: var(--green-400); }
+
+    /* ── Signal Log ──────────────────────────────────────────────────── */
+    #signal-log { max-height: 320px; overflow-y: auto; }
+    #signal-log::-webkit-scrollbar { width: 4px; }
+    #signal-log::-webkit-scrollbar-thumb { background: var(--gray-600); border-radius: 4px; }
+    .log-entry {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+      animation: slide-in 0.3s ease;
+    }
+    @keyframes slide-in { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+    .log-entry:last-child { border-bottom: none; }
+    .log-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+    .log-dot.buy   { background:var(--green-400); }
+    .log-dot.sell  { background:var(--red-400); }
+    .log-dot.watch { background:var(--yellow-400); }
+    .log-dot.reject{ background:var(--gray-400); }
+    .log-body { flex: 1; }
+    .log-ticker { font-size: 0.8rem; font-weight: 600; color: #fff; }
+    .log-detail { font-size: 0.68rem; color: var(--gray-400); line-height: 1.4; }
+
+    /* ── Equity Curve Chart ──────────────────────────────────────────── */
+    .chart-wrap { position: relative; height: 200px; }
+
+    /* ── Self-Grading Panel ──────────────────────────────────────────── */
+    .grade-row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; }
+    .grade-label { font-size: 0.72rem; color: var(--gray-400); }
+    .grade-val { font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
+    .progress-bar-wrap { background: var(--gray-600); border-radius: 4px; height: 6px; flex: 1; margin: 0 12px; }
+    .progress-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+
+    /* ── Portfolio Table ─────────────────────────────────────────────── */
+    .pos-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
+    .pos-table th { color: var(--gray-400); font-weight: 600; text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.62rem; }
+    .pos-table td { padding: 8px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); font-family: var(--font-mono); }
+    .pos-table tr:last-child td { border-bottom: none; }
+    .pos-table tr:hover td { background: rgba(99,179,237,0.05); }
+
+    /* ── Correlation Grid ────────────────────────────────────────────── */
+    #corr-grid {
+      display: grid;
+      gap: 4px;
+      font-size: 0.65rem;
+      font-family: var(--font-mono);
+    }
+    .corr-cell {
+      padding: 6px; border-radius: 4px; text-align: center;
+      font-weight: 600; transition: transform 0.15s;
+    }
+    .corr-cell:hover { transform: scale(1.1); }
+    .corr-header { color: var(--gray-400); font-weight: 700; }
+
+    /* ── Risk Tier Badge ─────────────────────────────────────────────── */
+    .tier-full         { color: var(--green-400); background: var(--green-glow); }
+    .tier-reduced      { color: var(--yellow-400); background: var(--yellow-glow); }
+    .tier-preservation { color: var(--red-400); background: var(--red-glow); }
+
+    /* ── Disclaimer Footer ───────────────────────────────────────────── */
+    footer {
+      text-align: center; margin-top: 40px; padding: 20px 0;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem; color: var(--gray-600); line-height: 1.6;
+    }
+
+    /* ── Spinner ─────────────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid var(--border); border-top-color: var(--blue-100);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── No-data placeholder ─────────────────────────────────────────── */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 28px; color: var(--gray-600); gap: 8px;
+      font-size: 0.78rem; text-align: center;
+    }
+    .empty-state .icon { font-size: 2rem; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div class="logo-dot"></div>
+      <h1>JARVIS <span>Trading HUD</span></h1>
+    </div>
+    <div class="header-meta">
+      <span class="badge badge-advisory">Advisory Only</span>
+      <span class="badge badge-live" id="live-badge">⬤ Live</span>
+      <span id="clock"></span>
+      <button id="refresh-btn" onclick="refreshAll()">⟳ Refresh</button>
+    </div>
+  </header>
+
+  <!-- ── Capital Bar ─────────────────────────────────────────────────── -->
+  <div class="capital-bar">
+    <div class="cap-metric">
+      <label>Total Capital</label>
+      <div class="value value-blue" id="cap-total">₹10,000</div>
+    </div>
+    <div class="cap-metric">
+      <label>Deployed</label>
+      <div class="value value-yellow" id="cap-deployed">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Open Positions</label>
+      <div class="value value-blue" id="cap-positions">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Drawdown</label>
+      <div class="value" id="cap-drawdown">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Win Rate (10-Trade)</label>
+      <div class="value value-green" id="cap-winrate">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Risk Tier</label>
+      <div class="value" id="cap-tier">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Effective Risk Cap</label>
+      <div class="value value-yellow" id="cap-riskcap">—</div>
+    </div>
+    <div class="cap-metric">
+      <label>Circuit Breaker</label>
+      <div class="value" id="cap-circuit">—</div>
+    </div>
+  </div>
+
+  <!-- ── Main Grid ──────────────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- Watchlist Signals — full width -->
+    <div class="card span-3">
+      <div class="card-title"><div class="dot"></div>Watchlist Signal Monitor</div>
+      <div id="watchlist-grid">
+        <div class="empty-state"><div class="spinner"></div><span>Fetching signals…</span></div>
+      </div>
+    </div>
+
+    <!-- Signal Log -->
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Signal Log</div>
+      <div id="signal-log">
+        <div class="empty-state"><div class="icon">📋</div><span>No signals yet</span></div>
+      </div>
+    </div>
+
+    <!-- Equity Curve -->
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Shadow Portfolio Equity Curve</div>
+      <div class="chart-wrap">
+        <canvas id="equity-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Self-Grading -->
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Self-Grading Report</div>
+      <div id="self-grade-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Portfolio Positions — full width -->
+    <div class="card span-3">
+      <div class="card-title"><div class="dot"></div>Shadow Portfolio — Open Positions</div>
+      <div id="portfolio-content">
+        <div class="empty-state"><div class="icon">📂</div><span>No open positions tracked yet</span></div>
+      </div>
+    </div>
+
+    <!-- Correlation Matrix — full width -->
+    <div class="card span-3">
+      <div class="card-title"><div class="dot"></div>Watchlist Correlation Matrix (60-day)</div>
+      <div id="corr-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    ⚠️ JARVIS is <strong>not</strong> a SEBI-registered investment advisor. All signals are advisory decision-support only.
+    Jay Davane trades at his own discretion and risk. &nbsp;|&nbsp;
+    Data source: Yahoo Finance (yfinance) — may be delayed. &nbsp;|&nbsp;
+    JARVIS Trading HUD v2.0
+  </footer>
+
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const API_BASE = 'http://localhost:8765';
+const REFRESH_MS = 30000;   // auto-refresh every 30s
+let equityChart = null;
+const signalLog = [];
+
+// ── Clock ────────────────────────────────────────────────────────────────────
+function updateClock() {
+  const el = document.getElementById('clock');
+  const now = new Date();
+  el.textContent = now.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }) + ' IST';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(v, prefix='₹', dec=2) {
+  if (v == null || isNaN(v)) return '—';
+  return prefix + Number(v).toFixed(dec);
+}
+function colorClass(action) {
+  const m = {BUY:'green',SELL:'red',WATCH:'yellow',REJECT:'gray'};
+  return m[action] || 'gray';
+}
+function actionBadge(action) {
+  const cls = {BUY:'badge-buy',SELL:'badge-sell',WATCH:'badge-watch',REJECT:'badge-reject'};
+  return `<span class="sc-badge ${cls[action]||'badge-reject'}">${action}</span>`;
+}
+function rsiClass(rsi) {
+  if (!rsi) return 'rsi-neutral';
+  if (rsi > 70) return 'rsi-ob';
+  if (rsi < 30) return 'rsi-os';
+  return 'rsi-neutral';
+}
+
+// ── Fetch wrapper ─────────────────────────────────────────────────────────────
+async function fetchJSON(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch(e) {
+    console.warn('API fetch error:', url, e.message);
+    return null;
+  }
+}
+
+// ── Watchlist Signals ─────────────────────────────────────────────────────────
+async function loadSignals() {
+  const data = await fetchJSON(`${API_BASE}/api/trading/signals`);
+  const grid = document.getElementById('watchlist-grid');
+  if (!data || !data.signals) {
+    grid.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><span>API unavailable. Start the Trading API server.</span></div>';
+    return;
+  }
+  const cards = data.signals.map(s => renderSignalCard(s)).join('');
+  grid.innerHTML = cards || '<div class="empty-state"><div class="icon">📡</div><span>No signal data</span></div>';
+
+  // Append to log
+  data.signals.forEach(s => {
+    if (s.action !== 'WATCH') {
+      signalLog.unshift({ ...s, logged_at: new Date().toLocaleTimeString('en-IN') });
+    }
+  });
+  renderSignalLog();
+}
+
+function renderSignalCard(s) {
+  const score = s.confluence_score || 0;
+  const maxScore = 5;
+  const action = s.action || 'REJECT';
+  const barClass = action === 'BUY' ? 'active-buy' : action === 'SELL' ? 'active-sell' : 'active-watch';
+
+  const bars = Array.from({ length: maxScore }, (_, i) =>
+    `<div class="bar ${i < score ? barClass : ''}"></div>`
+  ).join('');
+
+  const ctTag = s.is_counter_trend
+    ? `<span style="font-size:0.6rem;color:var(--red-400);"> ⚠️ Counter-Trend</span>` : '';
+
+  const stopVal  = s.stop_loss   ? fmt(s.stop_loss)   : '—';
+  const tgtVal   = s.target      ? fmt(s.target)       : '—';
+  const riskVal  = s.estimated_risk_inr ? `₹${Number(s.estimated_risk_inr).toFixed(2)} (${Number(s.estimated_risk_pct).toFixed(2)}%)` : '—';
+  const cmpColor = action === 'BUY' ? 'value-green' : action === 'SELL' ? 'value-red' : 'value-blue';
+
+  const rejectNote = s.risk_rejected
+    ? `<div style="font-size:0.65rem;color:var(--red-400);margin-top:8px;">⛔ ${(s.rejection_reason||'').substring(0,80)}</div>` : '';
+
+  return `
+    <div class="signal-card ${action.toLowerCase()}">
+      <div class="sc-header">
+        <span class="sc-ticker">${s.ticker}${ctTag}</span>
+        ${actionBadge(action)}
+      </div>
+      <div class="sc-cmp ${cmpColor}">${s.cmp ? fmt(s.cmp) : '—'}</div>
+      <div class="sc-as-of">${s.as_of || '—'}</div>
+      <div class="confluence-meter">
+        <label><span>Confluence</span><span>${score}/${maxScore}</span></label>
+        <div class="bars">${bars}</div>
+      </div>
+      <div class="sc-row"><span>Stop-Loss</span><span>${stopVal}</span></div>
+      <div class="sc-row"><span>Target (2R)</span><span>${tgtVal}</span></div>
+      <div class="sc-row"><span>Risk</span><span>${riskVal}</span></div>
+      <div class="sc-row"><span>Qty</span><span>${s.qty_suggested ?? '—'} shares</span></div>
+      <div class="sc-rationale">${(s.rationale || '').substring(0, 100)}</div>
+      ${rejectNote}
+    </div>`;
+}
+
+// ── Signal Log ────────────────────────────────────────────────────────────────
+function renderSignalLog() {
+  const el = document.getElementById('signal-log');
+  if (!signalLog.length) return;
+  el.innerHTML = signalLog.slice(0, 15).map(s => `
+    <div class="log-entry">
+      <div class="log-dot ${s.action.toLowerCase()}"></div>
+      <div class="log-body">
+        <div class="log-ticker">${s.action} ${s.ticker} @ ${fmt(s.cmp)} &nbsp; <span style="font-size:0.62rem;color:var(--gray-600)">${s.logged_at}</span></div>
+        <div class="log-detail">${(s.rationale||'').substring(0,80)}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ── Self-Grading ──────────────────────────────────────────────────────────────
+async function loadSelfGrade() {
+  const data = await fetchJSON(`${API_BASE}/api/trading/self-grade`);
+  const el = document.getElementById('self-grade-content');
+  if (!data) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><span>API offline</span></div>';
+    return;
+  }
+
+  // Update capital bar
+  const tierEl  = document.getElementById('cap-tier');
+  const riskEl  = document.getElementById('cap-riskcap');
+  const circEl  = document.getElementById('cap-circuit');
+  const wrEl    = document.getElementById('cap-winrate');
+  const ddEl    = document.getElementById('cap-drawdown');
+
+  const wr = data.rolling_win_rate_pct || 0;
+  const dd = data.drawdown_pct || 0;
+  const tierCls = data.risk_tier === 'Full' ? 'value-green' :
+                  data.risk_tier === 'Reduced' ? 'value-yellow' : 'value-red';
+
+  if (tierEl)  tierEl.textContent  = data.risk_tier || '—';
+  if (tierEl)  tierEl.className    = `value ${tierCls}`;
+  if (riskEl)  riskEl.textContent  = `₹${(data.effective_risk_cap_inr||0).toFixed(0)}`;
+  if (circEl) {
+    circEl.textContent = data.circuit_breaker_active ? '🚨 ACTIVE' : '✅ Armed';
+    circEl.className = `value ${data.circuit_breaker_active ? 'value-red' : 'value-green'}`;
+  }
+  if (wrEl)  wrEl.textContent  = `${wr}%`;
+  if (ddEl) {
+    ddEl.textContent = `${dd.toFixed(2)}%`;
+    ddEl.className = `value ${dd > 5 ? 'value-red' : dd > 2 ? 'value-yellow' : 'value-green'}`;
+  }
+
+  const wrFill  = Math.min(wr, 100);
+  const wrColor = wr >= 65 ? '#48bb78' : wr >= 50 ? '#f6e05e' : '#fc8181';
+
+  el.innerHTML = `
+    <div class="grade-row">
+      <span class="grade-label">Rolling 10-Trade Win Rate</span>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" style="width:${wrFill}%;background:${wrColor}"></div>
+      </div>
+      <span class="grade-val" style="color:${wrColor}">${wr}%</span>
+    </div>
+    <div class="grade-row">
+      <span class="grade-label">All-Time Win Rate</span>
+      <span class="grade-val value-blue">${data.all_time_win_rate_pct || 0}%</span>
+    </div>
+    <div class="grade-row">
+      <span class="grade-label">Total Trades</span>
+      <span class="grade-val">${data.total_trades || 0}</span>
+    </div>
+    <div class="grade-row">
+      <span class="grade-label">Portfolio Drawdown</span>
+      <span class="grade-val ${dd > 5 ? 'value-red' : 'value-green'}">${dd.toFixed(2)}%</span>
+    </div>
+    <div class="grade-row">
+      <span class="grade-label">Risk Tier</span>
+      <span class="grade-val ${tierCls}">${data.risk_tier} (₹${(data.effective_risk_cap_inr||0).toFixed(0)})</span>
+    </div>
+    ${(data.underperforming_signals||[]).length > 0 ? `
+    <div style="margin-top:12px;font-size:0.65rem;color:var(--red-400);">
+      ⬇️ Underperforming signals (< 40% WR):
+      <ul style="margin-top:4px;padding-left:14px;color:var(--gray-400);">
+        ${(data.underperforming_signals||[]).slice(0,3).map(s=>`<li>${s.substring(0,60)}</li>`).join('')}
+      </ul>
+    </div>` : `<div style="margin-top:12px;font-size:0.65rem;color:var(--green-400);">✅ No underperforming signal combinations.</div>`}
+  `;
+}
+
+// ── Portfolio ─────────────────────────────────────────────────────────────────
+async function loadPortfolio() {
+  const data = await fetchJSON(`${API_BASE}/api/trading/portfolio`);
+  const el = document.getElementById('portfolio-content');
+
+  // Update capital bar
+  const dp = document.getElementById('cap-deployed');
+  const pp = document.getElementById('cap-positions');
+
+  if (!data) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><span>API offline</span></div>';
+    return;
+  }
+
+  const positions = data.active_positions || [];
+  if (dp) dp.textContent = `₹${positions.reduce((a,p) => a + (p.budget_used||0), 0).toFixed(2)}`;
+  if (pp) pp.textContent = positions.length;
+
+  if (!positions.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📂</div><span>No open shadow positions yet. Confirm a signal to start tracking.</span></div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="pos-table">
+      <thead><tr>
+        <th>Ticker</th><th>Action</th><th>Entry ₹</th><th>Stop ₹</th>
+        <th>Target ₹</th><th>Qty</th><th>Budget</th><th>Date</th><th>Signal</th>
+      </tr></thead>
+      <tbody>
+        ${positions.map(p => `
+          <tr>
+            <td style="color:#fff;font-weight:600">${p.ticker}</td>
+            <td>${actionBadge(p.action)}</td>
+            <td>${fmt(p.price_at_rec)}</td>
+            <td style="color:var(--red-400)">${fmt(p.stop_loss)}</td>
+            <td style="color:var(--green-400)">${fmt(p.target_price)}</td>
+            <td>${p.qty}</td>
+            <td>${fmt(p.budget_used)}</td>
+            <td style="color:var(--gray-400)">${(p.rec_date||'').substring(0,10)}</td>
+            <td style="color:var(--gray-400);font-size:0.62rem">${(p.signal_summary||'').substring(0,40)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── Equity Curve ──────────────────────────────────────────────────────────────
+async function loadEquityCurve() {
+  const data = await fetchJSON(`${API_BASE}/api/trading/equity-curve`);
+  const ctx  = document.getElementById('equity-chart').getContext('2d');
+
+  const curve = (data?.equity_curve) || [];
+  const labels = curve.map(c => c.date);
+  const values = curve.map(c => c.cumulative_pnl);
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+  gradient.addColorStop(0, 'rgba(72,187,120,0.35)');
+  gradient.addColorStop(1, 'rgba(72,187,120,0.0)');
+
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels.length ? labels : ['No Data'],
+      datasets: [{
+        data: values.length ? values : [0],
+        borderColor: '#48bb78',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.4,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => `P&L: ₹${ctx.parsed.y.toFixed(2)}` }
+      }},
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#718096', font: { size: 10 },
+            callback: v => '₹' + v.toFixed(0) },
+        },
+      },
+    },
+  });
+}
+
+// ── Correlation Matrix ────────────────────────────────────────────────────────
+async function loadCorrelation() {
+  const data = await fetchJSON(`${API_BASE}/api/trading/correlation`);
+  const el = document.getElementById('corr-content');
+
+  if (!data || !data.tickers || !data.tickers.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📊</div><span>Correlation data not available (need 60 days of history)</span></div>';
+    return;
+  }
+  const tickers = data.tickers;
+  const matrix  = data.matrix;
+  const n = tickers.length;
+
+  const corrColor = v => {
+    if (v >= 0.8)  return 'rgba(252,129,129,0.4)';
+    if (v >= 0.5)  return 'rgba(246,224,94,0.25)';
+    if (v >= 0)    return 'rgba(72,187,120,0.15)';
+    return 'rgba(99,179,237,0.15)';
+  };
+
+  const cols = `repeat(${n + 1}, auto)`;
+  el.innerHTML = `<div id="corr-grid" style="grid-template-columns:${cols}">` +
+    `<div class="corr-cell corr-header"></div>` +
+    tickers.map(t => `<div class="corr-cell corr-header">${t}</div>`).join('') +
+    tickers.map((rt, ri) =>
+      `<div class="corr-cell corr-header">${rt}</div>` +
+      tickers.map((ct) => {
+        const v = matrix[rt]?.[ct] ?? 0;
+        const textColor = Math.abs(v) >= 0.8 ? '#fc8181' : '#e2e8f0';
+        return `<div class="corr-cell" style="background:${corrColor(v)};color:${textColor}">${v.toFixed(2)}</div>`;
+      }).join('')
+    ).join('') +
+    `</div>
+    <div style="margin-top:10px;font-size:0.65rem;color:var(--gray-400)">
+      🔴 r > 0.80 = Correlation guard will block second trade &nbsp;|&nbsp;
+      🟡 r 0.50–0.80 = High correlation (caution) &nbsp;|&nbsp;
+      🟢 r < 0.50 = Low correlation
+    </div>`;
+}
+
+// ── Master Refresh ────────────────────────────────────────────────────────────
+async function refreshAll() {
+  document.getElementById('live-badge').textContent = '⬤ Refreshing…';
+  await Promise.all([
+    loadSignals(),
+    loadSelfGrade(),
+    loadPortfolio(),
+    loadEquityCurve(),
+    loadCorrelation(),
+  ]);
+  document.getElementById('live-badge').textContent = '⬤ Live';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  refreshAll();
+  setInterval(refreshAll, REFRESH_MS);
+});
+</script>
+</body>
+</html>

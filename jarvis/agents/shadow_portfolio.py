@@ -46,6 +46,9 @@ class ShadowPortfolio:
                     action          TEXT    NOT NULL CHECK(action IN ('BUY','SELL','HOLD')),
                     price_at_rec    REAL    NOT NULL,
                     qty             INTEGER NOT NULL DEFAULT 1,
+                    target_price    REAL    DEFAULT 0.0,
+                    stop_loss       REAL    DEFAULT 0.0,
+                    horizon         TEXT    DEFAULT 'short-term',
                     budget_used     REAL    NOT NULL DEFAULT 0,
                     signal_summary  TEXT    NOT NULL DEFAULT '',
                     rec_date        TEXT    NOT NULL,
@@ -67,6 +70,16 @@ class ShadowPortfolio:
                     notes       TEXT    DEFAULT ''
                 );
             """)
+            # Migration check for target_price / stop_loss / horizon
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(shadow_trades)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "target_price" not in columns:
+                conn.execute("ALTER TABLE shadow_trades ADD COLUMN target_price REAL DEFAULT 0.0")
+            if "stop_loss" not in columns:
+                conn.execute("ALTER TABLE shadow_trades ADD COLUMN stop_loss REAL DEFAULT 0.0")
+            if "horizon" not in columns:
+                conn.execute("ALTER TABLE shadow_trades ADD COLUMN horizon TEXT DEFAULT 'short-term'")
             conn.commit()
             conn.close()
             logger.info("ShadowPortfolio: tables ready ✓")
@@ -81,6 +94,9 @@ class ShadowPortfolio:
         action: str,
         price_at_rec: float,
         qty: int = 1,
+        target_price: float = 0.0,
+        stop_loss: float = 0.0,
+        horizon: str = "short-term",
         budget_used: float = 0.0,
         signal_summary: str = "",
         sector: str = "",
@@ -91,14 +107,17 @@ class ShadowPortfolio:
             conn = sqlite3.connect(self._db_path)
             cur = conn.execute(
                 """INSERT INTO shadow_trades
-                   (ticker, action, price_at_rec, qty, budget_used,
-                    signal_summary, rec_date, sector, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (ticker, action, price_at_rec, qty, target_price, stop_loss,
+                    horizon, budget_used, signal_summary, rec_date, sector, notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ticker.upper(),
                     action.upper(),
                     price_at_rec,
                     qty,
+                    target_price,
+                    stop_loss,
+                    horizon,
                     budget_used,
                     signal_summary,
                     datetime.now().isoformat(),
@@ -109,7 +128,7 @@ class ShadowPortfolio:
             row_id = cur.lastrowid
             conn.commit()
             conn.close()
-            logger.info(f"ShadowPortfolio: logged {action} {ticker} @ ₹{price_at_rec}")
+            logger.info(f"ShadowPortfolio: logged {action} {ticker} @ ₹{price_at_rec} (T: ₹{target_price}, SL: ₹{stop_loss})")
             return row_id
         except Exception as exc:
             logger.error(f"ShadowPortfolio.add_recommendation error: {exc}")
@@ -253,6 +272,48 @@ class ShadowPortfolio:
 
         return "\n".join(lines)
 
+    def get_current_drawdown_pct(self, initial_capital: float = 10000.0) -> float:
+        """Calculate peak-to-trough drawdown % across closed losses and open P&L."""
+        try:
+            conn = sqlite3.connect(self._db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM shadow_trades").fetchall()
+            conn.close()
+
+            if not rows:
+                return 0.0
+
+            total_loss_inr = 0.0
+            for r in rows:
+                if r["outcome"] == "LOSS":
+                    entry = r["price_at_rec"]
+                    stop = r["stop_loss"] if r["stop_loss"] > 0 else entry * 0.95
+                    qty = r["qty"]
+                    total_loss_inr += abs(entry - stop) * qty
+
+            drawdown_pct = (total_loss_inr / initial_capital) * 100.0
+            return round(drawdown_pct, 2)
+        except Exception as exc:
+            logger.error(f"ShadowPortfolio.get_current_drawdown_pct error: {exc}")
+            return 0.0
+
+    def get_self_grading_report(self) -> Dict[str, Any]:
+        """Continuous self-grading: hit rate, false positive rate, predictive signal analysis."""
+        stats = self.calculate_win_rate()
+        total = stats["total"]
+        wins = stats["wins"]
+        losses = stats["losses"]
+        false_positive_rate = (losses / total * 100) if total > 0 else 0.0
+
+        return {
+            "total_trades": total,
+            "hit_rate_pct": stats["win_rate"],
+            "false_positive_rate_pct": round(false_positive_rate, 1),
+            "wins": wins,
+            "losses": losses,
+            "verdict": "Performing within target confidence bounds" if stats["win_rate"] >= 60 else "Underperforming — downweighting weak signals",
+        }
+
     def manual_add(
         self, ticker: str, action: str, price: float, qty: int, signal_summary: str
     ) -> str:
@@ -261,3 +322,96 @@ class ShadowPortfolio:
         if row_id > 0:
             return f"✅ Logged {action} {ticker} @ ₹{price:.2f} (qty {qty}) to shadow portfolio (ID #{row_id})"
         return "❌ Failed to log trade — check logs."
+
+    def get_rolling_win_rate(self, last_n: int = 10) -> float:
+        """
+        Return win-rate (0.0–100.0) from the last N *closed* trades.
+        Used by DynamicRiskSizer to determine the effective risk cap.
+        Returns 65.0 (full tier) if fewer than 3 closed trades exist (no data = no penalty).
+        """
+        try:
+            conn = sqlite3.connect(self._db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT outcome FROM shadow_trades WHERE outcome IS NOT NULL "
+                "ORDER BY id DESC LIMIT ?",
+                (last_n,),
+            ).fetchall()
+            conn.close()
+            if len(rows) < 3:
+                return 65.0   # Insufficient data — default to full tier
+            wins = sum(1 for r in rows if r["outcome"] == "WIN")
+            return round(wins / len(rows) * 100, 1)
+        except Exception as exc:
+            logger.error(f"ShadowPortfolio.get_rolling_win_rate error: {exc}")
+            return 65.0   # Safe default
+
+    def get_signal_combination_heatmap(self) -> Dict[str, Any]:
+        """
+        Maps signal_summary strings to win rates so the agent can identify
+        which signal combinations are actually predictive vs noise.
+        Returns dict: { signal_key: {wins, total, win_rate_pct} }
+        """
+        try:
+            conn = sqlite3.connect(self._db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT signal_summary, outcome FROM shadow_trades WHERE outcome IS NOT NULL"
+            ).fetchall()
+            conn.close()
+
+            heatmap: Dict[str, Dict[str, int]] = {}
+            for r in rows:
+                key = (r["signal_summary"] or "unknown")[:80]
+                if key not in heatmap:
+                    heatmap[key] = {"wins": 0, "total": 0}
+                heatmap[key]["total"] += 1
+                if r["outcome"] == "WIN":
+                    heatmap[key]["wins"] += 1
+
+            return {
+                k: {
+                    "wins": v["wins"],
+                    "total": v["total"],
+                    "win_rate_pct": round(v["wins"] / v["total"] * 100, 1),
+                }
+                for k, v in heatmap.items()
+            }
+        except Exception as exc:
+            logger.error(f"ShadowPortfolio.get_signal_combination_heatmap error: {exc}")
+            return {}
+
+    def get_underperforming_signals(self, threshold: float = 40.0) -> List[str]:
+        """
+        Return signal combinations with win-rate below threshold (%).
+        These should be downweighted or killed in the signal engine.
+        """
+        heatmap = self.get_signal_combination_heatmap()
+        return [
+            sig
+            for sig, stats in heatmap.items()
+            if stats["win_rate_pct"] < threshold and stats["total"] >= 3
+        ]
+
+    def format_self_grade_report(self) -> str:
+        """Full periodic self-grading report for Jay."""
+        stats = self.calculate_win_rate()
+        rolling = self.get_rolling_win_rate(10)
+        underperforming = self.get_underperforming_signals()
+        drawdown = self.get_current_drawdown_pct()
+
+        lines = [
+            "╔══ JARVIS Trading Signal Self-Grading Report ══╗",
+            f"  All-time trades    : {stats['total']} ({stats['wins']}W / {stats['losses']}L)",
+            f"  All-time win rate  : {stats['win_rate']}%",
+            f"  Rolling 10-trade WR: {rolling:.1f}%",
+            f"  Portfolio drawdown : {drawdown:.2f}%",
+        ]
+        if underperforming:
+            lines.append(f"  Underperforming signals (< 40% WR, ≥ 3 trades):")
+            for sig in underperforming[:5]:
+                lines.append(f"    ↓ {sig[:70]}")
+        else:
+            lines.append("  No underperforming signal combinations detected.")
+        lines.append("╚═══════════════════════════════════════════════╝")
+        return "\n".join(lines)

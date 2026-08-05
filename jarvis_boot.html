@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J.A.R.V.I.S. | System Boot Sequence</title>
+<meta name="description" content="JARVIS AI System Boot & Loading Interface for Jay Davane"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+
+<style>
+/* ─────────────────────────────────────────────────────────────────────────────
+   J.A.R.V.I.S. SYSTEM BOOT — CSS DESIGN SYSTEM & ANIMATION TIMINGS
+   Designed for Jay Davane | Antigravity AI
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Color Palette */
+  --bg-deep:       #030710;
+  --bg-mid:        #050b14;
+  --bg-light:      #0a1628;
+  
+  --cyan-bright:   #4dd8f0;
+  --cyan-mid:      #2a9fd6;
+  --cyan-dim:      rgba(77, 216, 240, 0.15);
+  --cyan-glow:     rgba(77, 216, 240, 0.4);
+  
+  --amber-accent:  #f0a830;
+  --amber-glow:    rgba(240, 168, 48, 0.5);
+  
+  --text-main:     #ffffff;
+  --text-muted:    rgba(210, 230, 245, 0.7);
+  --text-dim:      rgba(77, 216, 240, 0.4);
+
+  /* Typography */
+  --font-mono:    'JetBrains Mono', 'Space Mono', monospace;
+  --font-display: 'Space Mono', 'JetBrains Mono', monospace;
+  --font-body:    'Inter', system-ui, sans-serif;
+
+  /* Animation Timings */
+  --boot-duration: 3.8s;
+  --exit-duration: 0.6s;
+}
+
+/* Base Reset & Lock Scroll */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-deep);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FULLSCREEN BOOT OVERLAY CONTAINER
+   ───────────────────────────────────────────────────────────────────────────── */
+#jarvis-boot-container {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, var(--bg-light) 0%, var(--bg-mid) 50%, var(--bg-deep) 100%);
+  overflow: hidden;
+  cursor: pointer;
+  transition: opacity var(--exit-duration) cubic-bezier(0.4, 0, 0.2, 1),
+              transform var(--exit-duration) cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+/* Exit state trigger class */
+#jarvis-boot-container.boot-exit {
+  opacity: 0;
+  transform: scale(1.06);
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BACKGROUND LAYER 1: FAINT BLUEPRINT GRID & SCHEMATICS
+   Continuous subtle parallax drift (~15-20% opacity)
+   ───────────────────────────────────────────────────────────────────────────── */
+.blueprint-overlay {
+  position: absolute;
+  inset: -5%;
+  width: 110%;
+  height: 110%;
+  pointer-events: none;
+  opacity: 0.18;
+  z-index: 1;
+  background-image: 
+    linear-gradient(rgba(77, 216, 240, 0.15) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77, 216, 240, 0.15) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(77, 216, 240, 0.08) 2px, transparent 2px);
+  background-size: 40px 40px, 40px 40px, 20px 20px;
+  background-position: center center;
+  animation: bgBlueprintFade 1.8s ease-out forwards,
+             bgParallaxDrift 24s ease-in-out infinite alternate;
+}
+
+.blueprint-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BACKGROUND LAYER 2: CRT SCANLINE & RADIAL GLOW
+   ───────────────────────────────────────────────────────────────────────────── */
+.scanline-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0),
+    rgba(255,255,255,0) 50%,
+    rgba(0, 0, 0, 0.25) 50%,
+    rgba(0, 0, 0, 0.25)
+  );
+  background-size: 100% 4px;
+}
+
+.scan-beam {
+  position: absolute;
+  top: -10%;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: linear-gradient(180deg, transparent, rgba(77, 216, 240, 0.4), transparent);
+  box-shadow: 0 0 15px rgba(77, 216, 240, 0.6);
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.8;
+  animation: scanBeamSweep 3s ease-in-out infinite 0.8s;
+}
+
+.radial-ambient-glow {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(77, 216, 240, 0.14) 0%, rgba(42, 159, 214, 0.05) 50%, transparent 70%);
+  z-index: 2;
+  pointer-events: none;
+  animation: ambientPulse 4s ease-in-out infinite alternate;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CENTER MAIN HUD & CONCENTRIC RINGS
+   ───────────────────────────────────────────────────────────────────────────── */
+.hud-center-wrapper {
+  position: relative;
+  width: min(520px, 88vw);
+  height: min(520px, 88vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+/* Main SVG Ring Container */
+.hud-svg-rings {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg); /* Start 12 o'clock */
+  overflow: visible;
+}
+
+/* SVG Stroke Dasharray Animated Rings */
+.ring-outer-dial {
+  stroke: var(--cyan-bright);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 12;
+  opacity: 0;
+  transform-origin: center;
+  animation: ringDraw 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.2s,
+             spinClockwise 40s linear infinite 1.6s;
+}
+
+.ring-outer-solid {
+  stroke: var(--cyan-bright);
+  stroke-width: 2px;
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px var(--cyan-glow));
+  animation: strokeDashDraw 1.8s cubic-bezier(0.25, 1, 0.5, 1) forwards 0.1s;
+}
+
+.ring-middle-segmented {
+  stroke: var(--cyan-mid);
+  stroke-width: 7px;
+  stroke-dasharray: 180 30 90 30 240 40;
+  stroke-dashoffset: 1000;
+  opacity: 0.75;
+  transform-origin: center;
+  animation: strokeDashDraw 2.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards 0.4s,
+             spinCounterClockwise 30s linear infinite 2.2s;
+}
+
+/* Amber Accent Arc (Sweeping scanner arc) */
+.ring-amber-accent {
+  stroke: var(--amber-accent);
+  stroke-width: 5px;
+  stroke-linecap: round;
+  stroke-dasharray: 120 800; /* ~60 deg arc */
+  stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 8px var(--amber-glow));
+  transform-origin: center;
+  animation: sweepSpin 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.ring-inner-ticks {
+  stroke: var(--cyan-bright);
+  stroke-width: 1.5px;
+  stroke-dasharray: 2 8;
+  opacity: 0;
+  transform-origin: center;
+  animation: ringFadeIn 1s ease-out forwards 0.8s,
+             spinClockwise 25s linear infinite 1.8s;
+}
+
+.ring-inner-core {
+  stroke: var(--cyan-bright);
+  stroke-width: 1px;
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 4px var(--cyan-glow));
+  animation: strokeDashDraw 1.4s cubic-bezier(0.1, 0.9, 0.2, 1) forwards 0.6s;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CENTER TEXT & HUD METRICS
+   ───────────────────────────────────────────────────────────────────────────── */
+.center-core-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.jarvis-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4.5vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: 0.38em;
+  color: #ffffff;
+  text-indent: 0.38em; /* Align center despite letter-spacing */
+  text-shadow: 
+    0 0 10px rgba(77, 216, 240, 0.9),
+    0 0 25px rgba(77, 216, 240, 0.5),
+    0 0 40px rgba(42, 159, 214, 0.3);
+  opacity: 0;
+  transform: scale(0.94);
+  animation: textGlitchFlicker 1.2s cubic-bezier(0.15, 0.85, 0.35, 1) forwards 1.1s;
+}
+
+.sub-status-label {
+  margin-top: 8px;
+  font-size: clamp(0.65rem, 1.5vw, 0.78rem);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--cyan-bright);
+  text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 0.8s ease-out forwards 1.8s;
+}
+
+.progress-counter {
+  margin-top: 14px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  color: var(--amber-accent);
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--amber-glow);
+  opacity: 0;
+  animation: fadeIn 0.6s ease-out forwards 0.9s;
+}
+
+/* Radial Dial Annotations around the Ring */
+.hud-annotation {
+  position: absolute;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: color 0.3s ease;
+}
+
+.hud-annotation span {
+  color: var(--cyan-bright);
+  font-weight: 600;
+}
+
+.anno-top-left { top: 12%; left: 2%; animation: annoFade 0.6s ease-out forwards 1.2s; }
+.anno-top-right { top: 12%; right: 2%; animation: annoFade 0.6s ease-out forwards 1.4s; }
+.anno-bottom-left { bottom: 14%; left: 2%; animation: annoFade 0.6s ease-out forwards 1.6s; }
+.anno-bottom-right { bottom: 14%; right: 2%; animation: annoFade 0.6s ease-out forwards 1.8s; }
+
+/* Skip / Interactive Hint Bar */
+.boot-footer-hint {
+  position: absolute;
+  bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  background: rgba(8, 16, 26, 0.65);
+  border: 1px solid rgba(77, 216, 240, 0.2);
+  padding: 8px 18px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  opacity: 0;
+  animation: fadeIn 0.8s ease-out forwards 2.0s;
+  z-index: 20;
+}
+
+.boot-footer-hint .dot-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber-accent);
+  box-shadow: 0 0 8px var(--amber-accent);
+  animation: dotPulse 1.2s ease-in-out infinite alternate;
+}
+
+/* Audio Toggle Button (Top Right) */
+.audio-toggle-btn {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 16, 26, 0.75);
+  border: 1px solid rgba(77, 216, 240, 0.3);
+  color: var(--cyan-bright);
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+
+.audio-toggle-btn:hover {
+  background: rgba(77, 216, 240, 0.15);
+  border-color: var(--cyan-bright);
+  box-shadow: 0 0 15px rgba(77, 216, 240, 0.3);
+  transform: translateY(-1px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CSS ANIMATION KEYFRAMES (Clearly documented for easy tuning)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* SVG stroke drawing animation */
+@keyframes strokeDashDraw {
+  0% {
+    stroke-dashoffset: 1200;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Outer ring stroke draw in */
+@keyframes ringDraw {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+}
+
+/* Simple opacity fade in */
+@keyframes ringFadeIn {
+  from { opacity: 0; }
+  to { opacity: 0.7; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes annoFade {
+  0% { opacity: 0; transform: scale(0.9); }
+  100% { opacity: 0.85; transform: scale(1); }
+}
+
+/* Continuous rotation keyframes */
+@keyframes spinClockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spinCounterClockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+/* Continuous amber arc scanner sweep */
+@keyframes sweepSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* JARVIS Text Glitch / Flicker Effect (2-3 quick opacity flickers) */
+@keyframes textGlitchFlicker {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+    filter: blur(4px);
+  }
+  25% {
+    opacity: 0.9;
+    transform: scale(0.96);
+    filter: blur(0px);
+  }
+  35% {
+    opacity: 0.2;
+    transform: scale(0.97);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.02);
+    text-shadow: 0 0 20px rgba(240, 168, 48, 0.9), 0 0 40px rgba(77, 216, 240, 0.8);
+  }
+  60% {
+    opacity: 0.4;
+    transform: scale(0.99);
+  }
+  75% {
+    opacity: 0.95;
+    transform: scale(1.005);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    text-shadow: 
+      0 0 10px rgba(77, 216, 240, 0.9),
+      0 0 25px rgba(77, 216, 240, 0.5),
+      0 0 40px rgba(42, 159, 214, 0.3);
+  }
+}
+
+/* Top to bottom scan beam sweep */
+@keyframes scanBeamSweep {
+  0% { top: -10%; opacity: 0; }
+  15% { opacity: 0.8; }
+  85% { opacity: 0.8; }
+  100% { top: 110%; opacity: 0; }
+}
+
+/* Ambient glow pulsation */
+@keyframes ambientPulse {
+  0% { transform: scale(0.95); opacity: 0.6; }
+  100% { transform: scale(1.1); opacity: 0.9; }
+}
+
+/* Blueprint subtle background float */
+@keyframes bgBlueprintFade {
+  from { opacity: 0; }
+  to { opacity: 0.18; }
+}
+
+@keyframes bgParallaxDrift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-12px, -8px) scale(1.01); }
+  100% { transform: translate(10px, 12px) scale(1); }
+}
+
+@keyframes dotPulse {
+  0% { opacity: 0.3; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1.3); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DEMO APP CANVAS UNDERNEATH BOOT OVERLAY
+   ───────────────────────────────────────────────────────────────────────────── */
+#main-app-content {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #060c12;
+  position: relative;
+  z-index: 5;
+}
+
+iframe.hud-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+</style>
+</head>
+<body>
+
+<!-- ───────────────────────────────────────────────────────────────────────────
+     STANDALONE PREVIEW / CONTAINER STRUCTURE
+     ─────────────────────────────────────────────────────────────────────────── -->
+
+<!-- BOOT OVERLAY -->
+<div id="jarvis-boot-container" role="banner" aria-label="JARVIS System Boot Sequence">
+  
+  <!-- Audio Toggle Button -->
+  <button id="audio-toggle" class="audio-toggle-btn" title="Toggle Sci-Fi Ambient Sound">
+    <span id="audio-icon">🔇</span>
+    <span id="audio-label">AUDIO: MUTED</span>
+  </button>
+
+  <!-- Background Layer 1: Blueprint Grid & Circuit Art -->
+  <div class="blueprint-overlay"></div>
+  <svg class="blueprint-svg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice">
+    <!-- Faint Schematic Circuit Lines & Reticles -->
+    <g stroke="#4dd8f0" stroke-width="0.8" fill="none" opacity="0.6">
+      <circle cx="500" cy="500" r="380" stroke-dasharray="4 12"/>
+      <circle cx="500" cy="500" r="440" stroke-dasharray="2 20"/>
+      <path d="M 100 500 L 900 500 M 500 100 L 500 900" stroke-dasharray="6 6"/>
+      <!-- Corner Tech Brackets -->
+      <path d="M 80 140 L 80 80 L 140 80"/>
+      <path d="M 920 140 L 920 80 L 860 80"/>
+      <path d="M 80 860 L 80 920 L 140 920"/>
+      <path d="M 920 860 L 920 920 L 860 920"/>
+      <!-- Circuit Nodes -->
+      <circle cx="140" cy="80" r="3" fill="#4dd8f0"/>
+      <circle cx="860" cy="80" r="3" fill="#4dd8f0"/>
+      <circle cx="140" cy="920" r="3" fill="#4dd8f0"/>
+      <circle cx="860" cy="920" r="3" fill="#4dd8f0"/>
+    </g>
+    <!-- Technical Annotations -->
+    <g font-family="monospace" font-size="10" fill="#4dd8f0" opacity="0.7">
+      <text x="90" y="70">SYS.INIT // CORE_v7.4.2</text>
+      <text x="790" y="70">SECURITY: OMNI-LEVEL</text>
+      <text x="90" y="940">LATENCY: 0.42ms</text>
+      <text x="790" y="940">OPERATOR: JAY DAVANE</text>
+    </g>
+  </svg>
+
+  <!-- Background Layer 2: CRT Beam Scanline & Ambient Glow -->
+  <div class="scanline-overlay"></div>
+  <div class="scan-beam"></div>
+  <div class="radial-ambient-glow"></div>
+
+  <!-- Annotations Around Central Dial -->
+  <div class="hud-annotation anno-top-left">
+    SYS.DIAGNOSTICS<br/>
+    <span>[ ONLINE 100% ]</span>
+  </div>
+  <div class="hud-annotation anno-top-right">
+    NEURAL CORE<br/>
+    <span>[ SYNCED ]</span>
+  </div>
+  <div class="hud-annotation anno-bottom-left">
+    QUANTUM MESH<br/>
+    <span>[ ACTIVE ]</span>
+  </div>
+  <div class="hud-annotation anno-bottom-right">
+    PROTOCOL<br/>
+    <span>[ STARK_v7 ]</span>
+  </div>
+
+  <!-- CENTER HUD CONCENTRIC RINGS -->
+  <div class="hud-center-wrapper">
+    <svg class="hud-svg-rings" viewBox="0 0 500 500">
+      <defs>
+        <!-- Amber Linear Gradient Glow -->
+        <linearGradient id="amberGlowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f0a830" stop-opacity="1"/>
+          <stop offset="100%" stop-color="#ff7700" stop-opacity="0.6"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 1. Outer Tick Dial -->
+      <circle class="ring-outer-dial" cx="250" cy="250" r="230" fill="none"/>
+
+      <!-- 2. Outer Solid Cyan Precision Ring -->
+      <circle class="ring-outer-solid" cx="250" cy="250" r="215" fill="none"/>
+
+      <!-- 3. Middle Heavy Segmented Ring -->
+      <circle class="ring-middle-segmented" cx="250" cy="250" r="185" fill="none"/>
+
+      <!-- 4. Amber Accent Arc (Sweeping Arc) -->
+      <circle class="ring-amber-accent" cx="250" cy="250" r="160" fill="none"/>
+
+      <!-- 5. Inner Dash Ticks Ring -->
+      <circle class="ring-inner-ticks" cx="250" cy="250" r="135" fill="none"/>
+
+      <!-- 6. Inner Precision Reticle Core -->
+      <circle class="ring-inner-core" cx="250" cy="250" r="110" fill="none"/>
+
+      <!-- Reticle Crosshair Notches -->
+      <g stroke="#4dd8f0" stroke-width="2" opacity="0.8">
+        <line x1="250" y1="125" x2="250" y2="135"/>
+        <line x1="250" y1="365" x2="250" y2="375"/>
+        <line x1="125" y1="250" x2="135" y2="250"/>
+        <line x1="365" y1="250" x2="375" y2="250"/>
+      </g>
+    </svg>
+
+    <!-- CENTER TEXT & INITIALIZING STATUS -->
+    <div class="center-core-content">
+      <h1 class="jarvis-title">J.A.R.V.I.S.</h1>
+      <div id="sub-status" class="sub-status-label">INITIALIZING CONSOLE...</div>
+      <div id="progress-val" class="progress-counter">00%</div>
+    </div>
+  </div>
+
+  <!-- Footer Interactive Skip Hint -->
+  <div class="boot-footer-hint">
+    <div class="dot-pulse"></div>
+    <span>CLICK ANYWHERE OR PRESS ANY KEY TO SKIP INTRO</span>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────────────────────────────────────────
+     MAIN APP HUD FALLBACK / TARGET CONTAINER (Loaded underneath)
+     ─────────────────────────────────────────────────────────────────────────── -->
+<div id="main-app-content">
+  <!-- Embeds existing jarvis_hud.html or displays direct console preview -->
+  <iframe class="hud-frame" src="jarvis_hud.html?autoboot=false" title="JARVIS Operator Console"></iframe>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────────────────────
+     BOOT SEQUENCE CONTROLLER & AUDIO SYNTHESIZER SCRIPT
+     ───────────────────────────────────────────────────────────────────────────── -->
+<script>
+(function() {
+  'use strict';
+
+  // DOM Elements
+  const bootContainer = document.getElementById('jarvis-boot-container');
+  const progressVal   = document.getElementById('progress-val');
+  const subStatus     = document.getElementById('sub-status');
+  const audioBtn      = document.getElementById('audio-toggle');
+  const audioIcon     = document.getElementById('audio-icon');
+  const audioLabel    = document.getElementById('audio-label');
+
+  let bootCompleted = false;
+  let audioCtx = null;
+  let oscGain = null;
+  let isMuted = true;
+
+  // Status updates schedule
+  const statusMilestones = [
+    { pct: 15, text: "AUTHENTICATING OPERATOR: JAY DAVANE..." },
+    { pct: 38, text: "LOADING QUANTUM NEURAL ENGINE..." },
+    { pct: 64, text: "ESTABLISHING SECURE BACKEND MESH..." },
+    { pct: 88, text: "SYNCHRONIZING OPERATOR CONSOLE..." },
+    { pct: 100, text: "SYSTEM ONLINE. WELCOME, JAY." }
+  ];
+
+  // 1. Smooth Progress Percentage Counter ($0\% \rightarrow 100\%$)
+  let currentPct = 0;
+  const targetDuration = 3400; // 3.4 seconds total count
+  const intervalTime = 35;
+  const increment = 100 / (targetDuration / intervalTime);
+
+  const counterTimer = setInterval(() => {
+    if (bootCompleted) {
+      clearInterval(counterTimer);
+      return;
+    }
+    currentPct += increment;
+    if (currentPct >= 100) {
+      currentPct = 100;
+      clearInterval(counterTimer);
+    }
+    
+    const formatted = Math.floor(currentPct).toString().padStart(2, '0');
+    progressVal.textContent = `${formatted}%`;
+
+    // Check status text updates
+    for (let i = statusMilestones.length - 1; i >= 0; i--) {
+      if (currentPct >= statusMilestones[i].pct) {
+        subStatus.textContent = statusMilestones[i].text;
+        if (statusMilestones[i].pct === 100) {
+          subStatus.style.color = "#50E3B0"; // Green completion
+        }
+        break;
+      }
+    }
+  }, intervalTime);
+
+  // 2. Web Audio API Sci-Fi Ambient Low Hum Synthesizer
+  function initAmbientAudio() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      
+      audioCtx = new AudioContext();
+      
+      // Master Gain
+      oscGain = audioCtx.createGain();
+      oscGain.gain.value = 0.08; // Quiet background level
+
+      // Primary Sub-Bass Hum (55Hz Sine Wave - A1)
+      const subOsc = audioCtx.createOscillator();
+      subOsc.type = 'sine';
+      subOsc.frequency.setValueAtTime(55, audioCtx.currentTime);
+
+      // Higher Harmonious Drone (110Hz Triangle Wave - A2)
+      const droneOsc = audioCtx.createOscillator();
+      droneOsc.type = 'triangle';
+      droneOsc.frequency.setValueAtTime(110, audioCtx.currentTime);
+
+      // Low-pass filter for smooth sci-fi warmth
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(320, audioCtx.currentTime);
+
+      // Modulator LFO for subtle breathing pulse (0.4Hz)
+      const lfo = audioCtx.createOscillator();
+      lfo.frequency.setValueAtTime(0.4, audioCtx.currentTime);
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = 30; // Modulation depth
+      lfo.connect(filter.frequency);
+
+      // Connect node chain
+      subOsc.connect(filter);
+      droneOsc.connect(filter);
+      filter.connect(oscGain);
+      oscGain.connect(audioCtx.destination);
+
+      // Start Oscillators
+      subOsc.start();
+      droneOsc.start();
+      lfo.start();
+    } catch (e) {
+      console.warn("Web Audio API not supported or blocked", e);
+    }
+  }
+
+  function toggleAudio(e) {
+    if (e) e.stopPropagation(); // Don't trigger skip on audio button click
+    
+    if (!audioCtx) {
+      initAmbientAudio();
+    }
+
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
+    isMuted = !isMuted;
+    if (oscGain) {
+      oscGain.gain.setTargetAtTime(isMuted ? 0 : 0.08, audioCtx.currentTime, 0.1);
+    }
+
+    if (isMuted) {
+      audioIcon.textContent = '🔇';
+      audioLabel.textContent = 'AUDIO: MUTED';
+      audioBtn.style.borderColor = 'rgba(77, 216, 240, 0.3)';
+    } else {
+      audioIcon.textContent = '🔊';
+      audioLabel.textContent = 'AUDIO: ACTIVE';
+      audioBtn.style.borderColor = 'var(--cyan-bright)';
+    }
+  }
+
+  if (audioBtn) {
+    audioBtn.addEventListener('click', toggleAudio);
+  }
+
+  // 3. Complete Boot Sequence & Fade Out
+  function exitBootSequence() {
+    if (bootCompleted) return;
+    bootCompleted = true;
+
+    // Set 100% completion text instantly if skipped
+    progressVal.textContent = "100%";
+    subStatus.textContent = "SYSTEM ONLINE. WELCOME, JAY.";
+    subStatus.style.color = "#50E3B0";
+
+    // Play subtle exit fade
+    bootContainer.classList.add('boot-exit');
+
+    // Fade out audio if active
+    if (audioCtx && oscGain) {
+      oscGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.5);
+    }
+
+    // Remove boot overlay from DOM after animation completes (~600ms)
+    setTimeout(() => {
+      bootContainer.style.display = 'none';
+    }, 650);
+  }
+
+  // Automatic exit after ~3.8 seconds
+  const autoExitTimer = setTimeout(() => {
+    exitBootSequence();
+  }, 3800);
+
+  // 4. Skippable: Click anywhere or press key
+  bootContainer.addEventListener('click', (e) => {
+    // Avoid triggering skip when clicking audio button
+    if (e.target.closest('#audio-toggle')) return;
+    clearTimeout(autoExitTimer);
+    exitBootSequence();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    // Skip on Space, Enter, Escape, or any key
+    if (bootContainer.style.display !== 'none') {
+      clearTimeout(autoExitTimer);
+      exitBootSequence();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

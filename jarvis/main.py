@@ -130,6 +130,14 @@ if os.path.isdir(_WEBVIEW_DIR):
         name="webview_assets",
     )
 
+# Mount the root directory to serve jarvis_hud.html and jarvis_boot.html
+_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+app.mount(
+    "/hud",
+    StaticFiles(directory=_ROOT_DIR, html=True),
+    name="hud",
+)
+
 # ── Global objects ─────────────────────────────────────────────────────────────
 
 router = AgentRouter()
@@ -296,23 +304,17 @@ async def root(username: str = Depends(verify_credentials)):
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_ui(username: str = Depends(verify_credentials)):
-    """Serve the JARVIS React chat UI."""
-    _webview_index = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "extension", "dist", "webview", "index.html")
+    """Serve the redesigned JARVIS HUD HTML."""
+    _hud_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "jarvis_hud.html")
     )
-    if not os.path.isfile(_webview_index):
+    if not os.path.isfile(_hud_path):
         return HTMLResponse(
-            "<h2>Chat UI not built yet.</h2><p>Run <code>npm run compile</code> inside the <code>extension/</code> folder.</p>",
-            status_code=503,
+            "<h2>jarvis_hud.html not found.</h2><p>Please make sure it exists in the project root.</p>",
+            status_code=404,
         )
-    # Patch asset paths: the built HTML uses /App.js and /index.css at root,
-    # so we rewrite them to /assets/* served by the mount above.
-    import time
-    version = int(time.time())
-    with open(_webview_index, encoding="utf-8") as f:
+    with open(_hud_path, encoding="utf-8") as f:
         html = f.read()
-    html = html.replace('src="/App.js"', f'src="/assets/App.js?v={version}"')
-    html = html.replace('href="/index.css"', f'href="/assets/index.css?v={version}"')
     return HTMLResponse(html)
 
 
