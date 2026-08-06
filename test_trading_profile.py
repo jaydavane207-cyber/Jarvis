@@ -22,23 +22,23 @@ from jarvis.agents.shadow_portfolio import ShadowPortfolio
 
 def test_profile_constants():
     assert TOTAL_CAPITAL == 10000.0
-    assert MAX_RISK_PER_TRADE == 75.0
+    assert MAX_RISK_PER_TRADE == 100.0
     assert MAX_CONCURRENT_POSITIONS == 2
 
 
 def test_risk_engine_qty_and_cap():
     # Test case 1: CMP = ₹1000, Stop = ₹950 (Risk/share = ₹50)
-    # Hard cap ₹75 -> max qty = 1 -> Risk = ₹50 (0.50% capital) -> PASS
+    # Hard cap ₹100 -> max qty = 2 -> Risk = ₹100 (1.0% capital) -> PASS
     res = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=950.0, action="BUY")
     assert res["rejected"] is False
-    assert res["qty"] == 1
-    assert res["risk_inr"] == 50.0
-    assert res["risk_pct"] == 0.5
+    assert res["qty"] == 2
+    assert res["risk_inr"] == 100.0
+    assert res["risk_pct"] == 1.0
 
-    # Test case 2: CMP = ₹1000, Stop = ₹900 (Risk/share = ₹100 > ₹75 hard cap) -> REJECTED
-    res_high_risk = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=900.0, action="BUY")
+    # Test case 2: CMP = ₹1000, Stop = ₹850 (Risk/share = ₹150 > ₹100 hard cap) -> REJECTED
+    res_high_risk = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=850.0, action="BUY")
     assert res_high_risk["rejected"] is True
-    assert "exceeds hard cap ₹75" in res_high_risk["reason"]
+    assert "exceeds hard cap" in res_high_risk["reason"]
 
 
 def test_atr_stop_loss():

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import StreamingResponse
 import requests, io, os
 
@@ -150,4 +150,37 @@ async def _edge_tts_speak(voice_key: str, text: str):
         media_type="audio/mpeg",
         headers={"Content-Disposition": "inline; filename=preview.mp3"}
     )
+
+
+@router.post("/api/voice/transcribe")
+async def voice_transcribe(file: UploadFile = File(...)):
+    """
+    Transcribes uploaded audio files (.wav, .mp3, .webm, etc.) via faster-whisper.
+    Used by front-end audio recording & barge-in workflow.
+    """
+    import tempfile
+    from .audio_transcriber import transcribe_audio
+
+    ext = os.path.splitext(file.filename)[1] if file.filename else ".wav"
+    if not ext or ext == ".":
+        ext = ".wav"
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        transcript = await transcribe_audio(tmp_path)
+        return {"text": transcript, "success": True}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
 

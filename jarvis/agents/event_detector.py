@@ -61,32 +61,46 @@ class EventDetector:
         try:
             tk = yf.Ticker(ns_ticker)
 
-            # 1. Earnings dates
+            # 1. Earnings dates (check both calendar dict and earnings_dates DataFrame)
             try:
+                earn_dates = []
                 cal = tk.calendar
                 if cal is not None:
-                    # yfinance calendar returns a dict with 'Earnings Date' key
-                    earn_dates = []
                     if isinstance(cal, dict):
-                        earn_dates = cal.get("Earnings Date", [])
+                        earn_dates.extend(cal.get("Earnings Date", []))
                     elif hasattr(cal, "columns") and "Earnings Date" in cal.columns:
-                        earn_dates = cal["Earnings Date"].tolist()
+                        earn_dates.extend(cal["Earnings Date"].tolist())
 
-                    for ed in earn_dates:
-                        if ed is None:
-                            continue
-                        try:
-                            ed_date = ed.date() if hasattr(ed, "date") else ed
-                            if today <= ed_date <= cutoff:
-                                days_away = (ed_date - today).days
-                                events.append(CorporateEvent(
-                                    event_type="Earnings",
-                                    event_date=str(ed_date),
-                                    days_away=days_away,
-                                    detail=f"Quarterly results expected in {days_away} day(s).",
-                                ))
-                        except Exception:
-                            continue
+                # Fallback to tk.earnings_dates DataFrame if empty
+                if not earn_dates:
+                    try:
+                        ed_df = tk.earnings_dates
+                        if ed_df is not None and not ed_df.empty:
+                            # Future dates in index
+                            for idx in ed_df.index:
+                                d_val = idx.date() if hasattr(idx, "date") else idx
+                                if isinstance(d_val, datetime):
+                                    d_val = d_val.date()
+                                if today <= d_val <= cutoff:
+                                    earn_dates.append(d_val)
+                    except Exception:
+                        pass
+
+                for ed in earn_dates:
+                    if ed is None:
+                        continue
+                    try:
+                        ed_date = ed.date() if hasattr(ed, "date") else ed
+                        if today <= ed_date <= cutoff:
+                            days_away = (ed_date - today).days
+                            events.append(CorporateEvent(
+                                event_type="Earnings",
+                                event_date=str(ed_date),
+                                days_away=days_away,
+                                detail=f"Quarterly results expected in {days_away} day(s).",
+                            ))
+                    except Exception:
+                        continue
             except Exception as exc:
                 logger.debug(f"EventDetector: earnings fetch skipped for {ns_ticker}: {exc}")
 

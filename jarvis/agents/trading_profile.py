@@ -77,15 +77,22 @@ CONFIDENCE_REALTIME_THRESHOLD: int = 4   # Confluence score >= 4 triggers real-t
 CONFIDENCE_EOD_THRESHOLD: int = 2        # Confluence score 2-3 buffered for 15:30 IST digest
 SWING_HORIZON_DAYS: tuple[int, int] = (2, 5)
 
-# Watchlist — unified 7-stock watchlist (all watch-only at init)
+# Watchlist — unified 14-stock watchlist across 10 sectors (all watch-only at init, F&O strictly manual)
 WATCHLIST: List[Dict] = [
-    {"symbol": "RELIANCE",   "ns_ticker": "RELIANCE.NS",   "status": "watch-only", "position": None, "sector": "Energy"},
-    {"symbol": "INFY",       "ns_ticker": "INFY.NS",       "status": "watch-only", "position": None, "sector": "IT"},
-    {"symbol": "HDFCBANK",   "ns_ticker": "HDFCBANK.NS",   "status": "watch-only", "position": None, "sector": "Banking"},
-    {"symbol": "TATAMOTORS", "ns_ticker": "TATAMOTORS.NS", "status": "watch-only", "position": None, "sector": "Auto"},
-    {"symbol": "ICICIBANK",  "ns_ticker": "ICICIBANK.NS",  "status": "watch-only", "position": None, "sector": "Banking"},
-    {"symbol": "TCS",        "ns_ticker": "TCS.NS",        "status": "watch-only", "position": None, "sector": "IT"},
-    {"symbol": "WIPRO",      "ns_ticker": "WIPRO.NS",      "status": "watch-only", "position": None, "sector": "IT"},
+    {"symbol": "RELIANCE",   "ns_ticker": "RELIANCE.NS",   "status": "watch-only", "position": None, "sector": "Energy",                 "is_fo": False},
+    {"symbol": "INFY",       "ns_ticker": "INFY.NS",       "status": "watch-only", "position": None, "sector": "IT",                     "is_fo": False},
+    {"symbol": "HDFCBANK",   "ns_ticker": "HDFCBANK.NS",   "status": "watch-only", "position": None, "sector": "Banking (Private)",      "is_fo": False},
+    {"symbol": "TATAMOTORS", "ns_ticker": "TATAMOTORS.NS", "status": "watch-only", "position": None, "sector": "Auto (Commercial/EV)",   "is_fo": False},
+    {"symbol": "ICICIBANK",  "ns_ticker": "ICICIBANK.NS",  "status": "watch-only", "position": None, "sector": "Banking (Private)",      "is_fo": False},
+    {"symbol": "TCS",        "ns_ticker": "TCS.NS",        "status": "watch-only", "position": None, "sector": "IT",                     "is_fo": False},
+    {"symbol": "WIPRO",      "ns_ticker": "WIPRO.NS",      "status": "watch-only", "position": None, "sector": "IT",                     "is_fo": False},
+    {"symbol": "SBIN",       "ns_ticker": "SBIN.NS",       "status": "watch-only", "position": None, "sector": "Banking (PSU)",          "is_fo": False},
+    {"symbol": "BHARTIARTL", "ns_ticker": "BHARTIARTL.NS", "status": "watch-only", "position": None, "sector": "Telecom",                "is_fo": False},
+    {"symbol": "ITC",        "ns_ticker": "ITC.NS",        "status": "watch-only", "position": None, "sector": "FMCG / Consumer",        "is_fo": False},
+    {"symbol": "LT",         "ns_ticker": "LT.NS",         "status": "watch-only", "position": None, "sector": "Infra / Cap Goods",      "is_fo": False},
+    {"symbol": "SUNPHARMA",  "ns_ticker": "SUNPHARMA.NS",  "status": "watch-only", "position": None, "sector": "Pharmaceuticals",        "is_fo": False},
+    {"symbol": "MARUTI",     "ns_ticker": "MARUTI.NS",     "status": "watch-only", "position": None, "sector": "Auto (Passenger)",       "is_fo": False},
+    {"symbol": "BAJFINANCE", "ns_ticker": "BAJFINANCE.NS", "status": "watch-only", "position": None, "sector": "NBFC / Financial Services","is_fo": False},
 ]
 
 

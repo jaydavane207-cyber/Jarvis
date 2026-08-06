@@ -732,6 +732,63 @@ async def privacy_clear(req: PrivacyClearRequest, username: str = Depends(verify
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await manager.connect(websocket)
+    active_stream_task: asyncio.Task | None = None
+    cancel_event = asyncio.Event()
+
+    async def stream_worker(text: str, file_content: str, file_name: str, voice_mode: str, agent_mode: str):
+        nonlocal cancel_event
+        full_reply = ""
+        stream_error: Exception | None = None
+        interrupted = False
+        try:
+            async for token in router.route_stream(text, file_content, file_name, voice_mode, agent_mode):
+                if cancel_event.is_set():
+                    interrupted = True
+                    break
+                full_reply += token
+                await websocket.send_text(
+                    json.dumps({"type": "token", "text": token})
+                )
+        except asyncio.CancelledError:
+            interrupted = True
+        except Exception as exc:
+            stream_error = exc
+            logger.error(
+                "WebSocket stream error after %d chars: %s",
+                len(full_reply), exc
+            )
+            err_notice = (
+                f"\n\n⚠️ *Connection was interrupted mid-stream "
+                f"({type(exc).__name__}). The reply above may be incomplete.*"
+            )
+            await websocket.send_text(
+                json.dumps({"type": "token", "text": err_notice})
+            )
+            full_reply += err_notice
+
+        if interrupted:
+            notice = "\n\n⚠️ *[Interrupted mid-response by Jay]*"
+            try:
+                await websocket.send_text(
+                    json.dumps({"type": "token", "text": notice})
+                )
+            except Exception:
+                pass
+            full_reply += notice
+            logger.info("⚡ Stream interrupted by barge-in after %d chars", len(full_reply))
+
+        try:
+            await websocket.send_text(
+                json.dumps({"type": "done", "text": full_reply, "interrupted": interrupted})
+            )
+        except Exception:
+            pass
+
+        if stream_error:
+            logger.warning("→ Done frame sent with stream error notice (%d chars)", len(full_reply))
+        else:
+            logger.info(f"→ Reply sent ({len(full_reply)} chars, interrupted={interrupted})")
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -740,6 +797,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 payload  = json.loads(data)
                 msg_type = payload.get("type", "chat")
+
+                # ── Barge-In Stream Cancellation ───────────────────────────
+                if msg_type in ("cancel_stream", "barge_in"):
+                    logger.info("⚡ Voice Barge-In signal received from client!")
+                    cancel_event.set()
+                    if active_stream_task and not active_stream_task.done():
+                        active_stream_task.cancel()
+                    await websocket.send_text(
+                        json.dumps({"type": "barge_in_ack", "text": "Go ahead, Jay."})
+                    )
+                    continue
 
                 # ── Clear conversation history ─────────────────────────────
                 if msg_type == "clear_history":
@@ -786,43 +854,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     if not text:
                         continue
 
-                    # Immediate "thinking" acknowledgement
+                    # Cancel any prior running stream before starting a new one
+                    if active_stream_task and not active_stream_task.done():
+                        cancel_event.set()
+                        active_stream_task.cancel()
+
+                    cancel_event = asyncio.Event()
                     await websocket.send_text(json.dumps({"type": "thinking"}))
-
-                    full_reply = ""
-                    stream_error: Exception | None = None
-                    try:
-                        async for token in router.route_stream(text, file_content, file_name, voice_mode, agent_mode):
-                            full_reply += token
-                            await websocket.send_text(
-                                json.dumps({"type": "token", "text": token})
-                            )
-                    except Exception as exc:
-                        stream_error = exc
-                        logger.error(
-                            "WebSocket stream error after %d chars: %s",
-                            len(full_reply), exc
-                        )
-                        # Inject a visible notice — don't silently send a
-                        # truncated reply as if it were complete
-                        err_notice = (
-                            f"\n\n⚠️ *Connection was interrupted mid-stream "
-                            f"({type(exc).__name__}). The reply above may be incomplete. "
-                            f"Retrying automatically via local model...*"
-                        )
-                        await websocket.send_text(
-                            json.dumps({"type": "token", "text": err_notice})
-                        )
-                        full_reply += err_notice
-
-                    # Final "done" frame with the complete assembled text
-                    await websocket.send_text(
-                        json.dumps({"type": "done", "text": full_reply})
+                    active_stream_task = asyncio.create_task(
+                        stream_worker(text, file_content, file_name, voice_mode, agent_mode)
                     )
-                    if stream_error:
-                        logger.warning("→ Done frame sent with stream error notice (%d chars)", len(full_reply))
-                    else:
-                        logger.info(f"→ Reply sent ({len(full_reply)} chars)")
 
             except json.JSONDecodeError:
                 await websocket.send_text(
@@ -830,6 +871,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 )
 
     except WebSocketDisconnect:
+        if active_stream_task and not active_stream_task.done():
+            active_stream_task.cancel()
         manager.disconnect(websocket)
 
 # ── Morning Protocol REST API ──────────────────────────────────────────────────

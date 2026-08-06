@@ -111,10 +111,13 @@ async def scan_watchlist_once(manager: Any) -> Dict[str, Any]:
         ns_ticker = item["ns_ticker"]
         sector = item.get("sector", "General")
         scanned_count += 1
+        await asyncio.sleep(0.1)  # Non-blocking pause between yfinance calls to eliminate rate-limit burst risk
 
         try:
+            is_fo_flag = item.get("is_fo", False)
+            fo_params = item.get("fo_params", None)
             # Analyze ticker via TradingAgent (returns SignalResult dataclass)
-            analysis = _trading_agent.analyze_ticker(symbol)
+            analysis = _trading_agent.analyze_ticker(symbol, is_fo=is_fo_flag, fo_params=fo_params)
             action = getattr(analysis, "action", "WATCH")
             score = getattr(analysis, "confluence_score", 0)
             cmp = getattr(analysis, "cmp", 0.0) or 0.0
@@ -269,6 +272,22 @@ async def scan_watchlist_once(manager: Any) -> Dict[str, Any]:
 
         except Exception as exc:
             logger.error(f"TradingScanner: Error processing {symbol}: {exc}")
+
+    # Check open positions against recent earnings reports for informational warnings
+    try:
+        from .earnings_summarizer import earnings_summarizer
+        earn_alerts = earnings_summarizer.check_position_earnings_alerts(open_tickers)
+        for alert_msg in earn_alerts:
+            payload = {
+                "type": "notification",
+                "severity": "warning",
+                "title": "📊 EARNINGS EVENT ALERT",
+                "body": alert_msg,
+                "context_id": f"earn_alert_{datetime.now().strftime('%Y%m%d')}",
+            }
+            await manager.broadcast(json.dumps(payload))
+    except Exception as e:
+        logger.debug(f"TradingScanner: position earnings check skipped: {e}")
 
     return {
         "scanned": scanned_count,

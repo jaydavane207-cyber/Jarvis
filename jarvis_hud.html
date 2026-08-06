@@ -1531,6 +1531,8 @@ body::after {
     <button class="qa-chip" onclick="C.quickSend('Draw a mindmap of ARM Cortex architecture')">&#9654; MINDMAP</button>
     <button class="qa-chip" onclick="C.quickSend('Check portfolio performance and NSE market signals')">&#9654; MARKET</button>
     <button class="qa-chip" onclick="C.quickSend('System status report')">&#9654; SYS REPORT</button>
+    <button class="qa-chip" id="bargein-mode-btn" onclick="BargeIn.cycleMode()" style="border-color:var(--cyan);color:var(--cyan)" title="Barge-in mode toggle">BARGE: MODE B</button>
+    <button class="qa-chip" id="calibrate-btn" onclick="Voice.calibrateNoiseFloor()" title="Calibrate room background noise">🎙️ CALIBRATE MIC</button>
   </div>
   <canvas class="wv-canvas" id="wv-canvas" style="display:none" aria-hidden="true"></canvas>
   <div class="cinput-bar">
@@ -1625,6 +1627,19 @@ body::after {
       <div class="sparkbox">
         <svg id="spksvg" width="100%" height="54" viewBox="0 0 220 44" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="sparklbl" id="spklbl"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EARNINGS SUMMARIES -->
+  <div class="fin-section">
+    <div class="fin-sec-hdr" onclick="toggleFinSec(this)">
+      <span class="fin-sec-title">&#128202; EARNINGS REPORTS & SUMMARIES</span>
+      <span style="font-size:.56rem;color:rgba(240,168,50,.4)">&#9660;</span>
+    </div>
+    <div class="fin-sec-body" id="earnings-body" style="max-height:400px;overflow-y:auto">
+      <div id="earnings-list" style="display:flex;flex-direction:column;gap:6px;padding:4px 0">
+        <div style="font-size:.62rem;color:var(--txt-dim)">Loading recent earnings summaries...</div>
       </div>
     </div>
   </div>
@@ -2345,48 +2360,463 @@ var MM={
 };
 
 /* ═══════════════════════════════════════════════════════════════════════
-   VOICE INPUT + WAVEFORM
+   VOICE BARGE-IN & VAD ENGINE v2.0
+   - Duplex WebAudio AnalyserNode VAD (60 FPS)
+   - Dynamic VAD Threshold Elevation during TTS playback (+6dB offset)
+   - Refractory Cooldown (250ms ignore window after TTS start)
+   - Interrupt Modes:
+       Mode B (DEFAULT): Keyword Gate ("Jarvis", "stop", "wait", "hold on", "quiet", "cancel", "pause")
+       Mode A: Any Sustained Speech (>300ms continuous voice)
+       Mode C: Manual / Hotkey Only (Space / Escape / HUD click)
+   - In-flight Stream Abort (WS cancel_stream) + Audio Pause
+   - Continuous Conversation Mode (8s silence window)
+   - Ambient Noise Calibration & Barge-in Analytics
 ══════════════════════════════════════════════════════════════════════ */
-var Voice={rec:null,stream:null,analyser:null,animFrame:null,
-  toggle:function(){
-    var btn=document.getElementById('voice-btn');
-    var cv=document.getElementById('wv-canvas');
-    if(this.rec&&this.rec.state==='recording'){
-      this.rec.stop();btn.classList.remove('recording');cv.style.display='none';
-      cancelAnimationFrame(this.animFrame);Orb.set('standby');return;
-    }
-    if(!navigator.mediaDevices){C.append('sys','[WARN] Microphone not supported.');return;}
-    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
-      Voice.stream=stream;
-      var aCtx=new(window.AudioContext||window.webkitAudioContext)();
-      var src=aCtx.createMediaStreamSource(stream);
-      Voice.analyser=aCtx.createAnalyser();Voice.analyser.fftSize=128;src.connect(Voice.analyser);
-      Voice.rec=new MediaRecorder(stream);
-      var chunks=[];
-      Voice.rec.ondataavailable=function(e){chunks.push(e.data);};
-      Voice.rec.onstop=function(){stream.getTracks().forEach(function(t){t.stop();});C.append('sys','[VOICE] Recording stopped.');};
-      Voice.rec.start();
-      btn.classList.add('recording');cv.style.display='block';
-      Orb.set('listening');Voice.drawWave();
-    }).catch(function(e){C.append('sys','[ERROR] Microphone: '+e.message);});
+var BargeIn = {
+  mode: localStorage.getItem('jarvis_bargein_mode') || 'B', // Default: Mode B (Keyword Gate)
+  baseThreshold: parseFloat(localStorage.getItem('jarvis_vad_threshold') || '0.040'),
+  vadThreshold: parseFloat(localStorage.getItem('jarvis_vad_threshold') || '0.040'),
+  speechWindowMs: 300,
+  speechStart: null,
+  refractoryUntil: 0,
+  isTTSPlaying: false,
+  activeAudioObj: null,
+  recog: null,
+  isListening: false,
+  audioCtx: null,
+  analyser: null,
+  stream: null,
+  keywords: ['jarvis', 'stop', 'wait', 'hold on', 'quiet', 'pause', 'cancel', 'shut up', 'halt'],
+
+  init: function() {
+    this.updateModeUI();
+    this.initWebSpeech();
+    this.bindHotkeys();
+    console.log('[BARGE-IN] Engine ready. Mode:', this.mode, '| VAD Threshold:', this.baseThreshold);
   },
-  drawWave:function(){
-    var cv=document.getElementById('wv-canvas');
-    var ctx=cv.getContext('2d');
-    var buf=new Uint8Array(Voice.analyser.frequencyBinCount);
-    function frame(){
-      Voice.animFrame=requestAnimationFrame(frame);
-      Voice.analyser.getByteTimeDomainData(buf);
-      ctx.clearRect(0,0,cv.width,cv.height);
-      ctx.strokeStyle='rgba(63,188,220,.75)';ctx.lineWidth=1.4;ctx.beginPath();
-      var sl=cv.width/buf.length;
-      buf.forEach(function(v,i){var y=(v/128)*cv.height/2;if(i===0)ctx.moveTo(0,y);else ctx.lineTo(i*sl,y);});
+
+  cycleMode: function() {
+    var modes = ['B', 'A', 'C'];
+    var currentIdx = modes.indexOf(this.mode);
+    var nextMode = modes[(currentIdx + 1) % modes.length];
+    this.setMode(nextMode);
+  },
+
+  setMode: function(m) {
+    if (['A', 'B', 'C'].includes(m)) {
+      this.mode = m;
+      localStorage.setItem('jarvis_bargein_mode', m);
+      this.updateModeUI();
+      var labelMap = {
+        'B': 'Mode B (Keyword Gate: "Jarvis, stop/wait")',
+        'A': 'Mode A (Any Sustained Speech)',
+        'C': 'Mode C (Manual / Hotkey Only)'
+      };
+      C.append('sys', '[VOICE] Barge-in Mode set to: ' + labelMap[m]);
+      SFX.click();
+    }
+  },
+
+  updateModeUI: function() {
+    var btn = document.getElementById('bargein-mode-btn');
+    if (btn) {
+      btn.textContent = 'BARGE: MODE ' + this.mode;
+      var titleMap = {
+        'B': 'Mode B (Keyword Gate: Say "Jarvis", "stop", or "wait" to interrupt)',
+        'A': 'Mode A (Speech Barge-in: Any sustained voice interrupts)',
+        'C': 'Mode C (Manual/Hotkey Only: Press Space/Esc or click to interrupt)'
+      };
+      btn.title = titleMap[this.mode] || '';
+    }
+  },
+
+  setTTSAudio: function(audioEl) {
+    this.activeAudioObj = audioEl;
+    this.isTTSPlaying = true;
+    this.refractoryUntil = Date.now() + 300;
+    this.vadThreshold = Math.max(0.08, this.baseThreshold * 2.8);
+    var self = this;
+    audioEl.onended = function() { self.onTTSEnd(); };
+    audioEl.onpause = function() { self.onTTSEnd(); };
+    this.startVADListening();
+  },
+
+  onTTSEnd: function() {
+    this.isTTSPlaying = false;
+    this.vadThreshold = this.baseThreshold;
+    if (this.activeAudioObj) { this.activeAudioObj = null; }
+    Voice.startContinuousWindow();
+  },
+
+  initWebSpeech: function() {
+    var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    try {
+      this.recog = new SpeechRec();
+      this.recog.continuous = true;
+      this.recog.interimResults = true;
+      this.recog.lang = 'en-US';
+      var self = this;
+      this.recog.onresult = function(e) {
+        if (!C.isStreaming && !self.isTTSPlaying) return;
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          var transcript = e.results[i][0].transcript.toLowerCase().trim();
+          if (self.mode === 'B') {
+            var matched = self.keywords.some(function(kw) { return transcript.includes(kw); });
+            if (matched) {
+              console.log('[BARGE-IN] Keyword detected:', transcript);
+              self.triggerInterrupt('keyword: ' + transcript);
+              try { self.recog.stop(); } catch(ex) {}
+              break;
+            }
+          } else if (self.mode === 'A') {
+            if (transcript.length > 2) {
+              console.log('[BARGE-IN] Speech detected in Mode A:', transcript);
+              self.triggerInterrupt('speech: ' + transcript);
+              try { self.recog.stop(); } catch(ex) {}
+              break;
+            }
+          }
+        }
+      };
+      this.recog.onerror = function() {};
+    } catch(err) { console.warn('[BARGE-IN] WebSpeech not supported:', err); }
+  },
+
+  startVADListening: function() {
+    if (this.isListening) return;
+    var self = this;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      .then(function(stream) {
+        self.stream = stream;
+        self.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var src = self.audioCtx.createMediaStreamSource(stream);
+        self.analyser = self.audioCtx.createAnalyser();
+        self.analyser.fftSize = 256;
+        src.connect(self.analyser);
+        self.isListening = true;
+        if (self.recog) {
+          try { self.recog.start(); } catch(ex) {}
+        }
+        self.processVADFrame();
+      }).catch(function(err) { console.warn('[BARGE-IN] Mic VAD error:', err); });
+  },
+
+  processVADFrame: function() {
+    if (!this.isListening || !this.analyser) return;
+    var self = this;
+    var buf = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(buf);
+    var sum = 0;
+    for (var i = 0; i < buf.length; i++) { sum += buf[i] * buf[i]; }
+    var rms = Math.sqrt(sum / buf.length);
+
+    var now = Date.now();
+    var activeThreshold = (this.isTTSPlaying || C.isStreaming) ? Math.max(0.08, this.baseThreshold * 2.8) : this.baseThreshold;
+
+    if (now > this.refractoryUntil && rms > activeThreshold) {
+      if (!this.speechStart) { this.speechStart = now; }
+      else if (now - this.speechStart >= this.speechWindowMs) {
+        if (this.mode === 'A' && (C.isStreaming || this.isTTSPlaying)) {
+          this.triggerInterrupt('VAD RMS energy (' + rms.toFixed(3) + ')');
+          this.speechStart = null;
+        } else if (this.mode === 'B' && (C.isStreaming || this.isTTSPlaying)) {
+          if (!this.recog) {
+            this.triggerInterrupt('VAD RMS fallback');
+            this.speechStart = null;
+          }
+        }
+      }
+    } else {
+      this.speechStart = null;
+    }
+
+    if (this.isTTSPlaying || C.isStreaming || Voice.continuousActive) {
+      requestAnimationFrame(function() { self.processVADFrame(); });
+    } else {
+      this.stopVADListening();
+    }
+  },
+
+  stopVADListening: function() {
+    this.isListening = false;
+    if (this.stream) {
+      this.stream.getTracks().forEach(function(t) { t.stop(); });
+      this.stream = null;
+    }
+    if (this.audioCtx) {
+      try { this.audioCtx.close(); } catch(ex) {}
+      this.audioCtx = null;
+    }
+    if (this.recog) {
+      try { this.recog.stop(); } catch(ex) {}
+    }
+  },
+
+  triggerInterrupt: function(reason) {
+    if (this.mode === 'C' && !reason.includes('hotkey')) return;
+    console.log('⚡ [BARGE-IN] INTERRUPT TRIGGERED:', reason);
+
+    if (this.activeAudioObj) {
+      try { this.activeAudioObj.pause(); this.activeAudioObj.currentTime = 0; } catch(e) {}
+      this.activeAudioObj = null;
+    }
+    this.isTTSPlaying = false;
+
+    if (WS.socket && WS.socket.readyState === WebSocket.OPEN) {
+      WS.socket.send(JSON.stringify({ type: 'cancel_stream' }));
+    }
+
+    C.isStreaming = false;
+    C.busy = false;
+    document.getElementById('sendbtn').disabled = false;
+
+    var lastMa = document.querySelector('#cthread .ma:last-child .mbody');
+    if (lastMa && !lastMa.innerHTML.includes('Interrupted')) {
+      lastMa.innerHTML += '<br><span style="font-size:.65rem;color:var(--warn);border-left:2px solid var(--warn);padding-left:5px;margin-top:4px;display:inline-block">⚡ [Interrupted mid-response by Jay]</span>';
+    }
+
+    this.logAnalytics(reason);
+    Orb.set('listening');
+    SFX.click();
+    C.append('sys', '[BARGE-IN] Interrupted response (' + reason + '). Listening for next command...');
+    Voice.startContinuousWindow();
+  },
+
+  bindHotkeys: function() {
+    var self = this;
+    document.addEventListener('keydown', function(e) {
+      var activeEl = document.activeElement;
+      var isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+      if ((e.key === 'Escape' || (e.key === ' ' && !isInput)) && (C.isStreaming || self.isTTSPlaying)) {
+        e.preventDefault();
+        self.triggerInterrupt('hotkey: ' + e.key);
+      }
+    });
+  },
+
+  logAnalytics: function(reason) {
+    var logs = JSON.parse(localStorage.getItem('jarvis_bargein_analytics_v1') || '[]');
+    logs.push({
+      time: new Date().toISOString(),
+      reason: reason,
+      mode: this.mode,
+      threshold: this.vadThreshold
+    });
+    if (logs.length > 50) logs = logs.slice(-50);
+    localStorage.setItem('jarvis_bargein_analytics_v1', JSON.stringify(logs));
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VOICE ENGINE & CONTINUOUS CONVERSATION MODE
+══════════════════════════════════════════════════════════════════════ */
+var Voice = {
+  rec: null,
+  stream: null,
+  analyser: null,
+  animFrame: null,
+  autoSpeakEnabled: true,
+  continuousActive: false,
+  silenceTimer: null,
+  mediaChunks: [],
+
+  toggle: function() {
+    if (this.rec && this.rec.state === 'recording') {
+      this.stopRecording();
+    } else {
+      this.startRecording();
+    }
+  },
+
+  startRecording: function() {
+    var btn = document.getElementById('voice-btn');
+    var cv = document.getElementById('wv-canvas');
+    if (!navigator.mediaDevices) { C.append('sys', '[WARN] Microphone not supported.'); return; }
+    
+    var self = this;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      .then(function(stream) {
+        self.stream = stream;
+        var aCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var src = aCtx.createMediaStreamSource(stream);
+        self.analyser = aCtx.createAnalyser();
+        self.analyser.fftSize = 128;
+        src.connect(self.analyser);
+
+        self.mediaChunks = [];
+        self.rec = new MediaRecorder(stream);
+        self.rec.ondataavailable = function(e) { if (e.data.size > 0) self.mediaChunks.push(e.data); };
+        self.rec.onstop = function() {
+          stream.getTracks().forEach(function(t) { t.stop(); });
+          if (self.mediaChunks.length > 0) {
+            var blob = new Blob(self.mediaChunks, { type: 'audio/webm' });
+            self.transcribeAndSend(blob);
+          }
+        };
+        self.rec.start();
+        if (btn) btn.classList.add('recording');
+        if (cv) cv.style.display = 'block';
+        Orb.set('listening');
+        self.drawWave();
+      })
+      .catch(function(e) { C.append('sys', '[ERROR] Microphone: ' + e.message); });
+  },
+
+  stopRecording: function() {
+    var btn = document.getElementById('voice-btn');
+    var cv = document.getElementById('wv-canvas');
+    if (this.rec && this.rec.state === 'recording') {
+      this.rec.stop();
+    }
+    if (btn) btn.classList.remove('recording');
+    if (cv) cv.style.display = 'none';
+    cancelAnimationFrame(this.animFrame);
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.continuousActive = false;
+    Orb.set('standby');
+  },
+
+  startContinuousWindow: function(timeoutMs) {
+    var ms = timeoutMs || 8000;
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.continuousActive = true;
+    Orb.set('listening');
+    
+    var cv = document.getElementById('wv-canvas');
+    if (cv) cv.style.display = 'block';
+    if (!this.rec || this.rec.state !== 'recording') {
+      this.startRecording();
+    }
+
+    var self = this;
+    C.append('sys', '[VOICE] Continuous conversation mode (' + (ms / 1000) + 's window)...');
+    this.silenceTimer = setTimeout(function() {
+      if (self.continuousActive) {
+        console.log('[VOICE] Continuous conversation window timed out.');
+        self.stopRecording();
+        C.append('sys', '[VOICE] Conversation idle. Mic closed.');
+      }
+    }, ms);
+  },
+
+  transcribeAndSend: function(audioBlob) {
+    C.append('sys', '[VOICE] Transcribing audio via faster-whisper...');
+    var formData = new FormData();
+    formData.append('file', audioBlob, 'voice_input.webm');
+
+    fetch('/api/voice/transcribe', { method: 'POST', body: formData })
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        if (data.text && data.text.trim()) {
+          var clean = data.text.trim();
+          C.append('sys', '[VOICE Transcribed]: ' + clean);
+          C.send(clean);
+        } else {
+          C.append('sys', '[VOICE] No speech detected in audio.');
+        }
+      })
+      .catch(function(err) {
+        console.warn('[VOICE] Transcription failed:', err);
+        C.append('sys', '[WARN] Voice transcription error: ' + err.message);
+      });
+  },
+
+  speakText: function(text, voiceMode) {
+    if (!text || !text.trim()) return;
+    var mode = voiceMode || 'calm_male';
+    var self = this;
+    Orb.set('speaking');
+
+    fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, voice: mode })
+    })
+    .then(function(res) {
+      if (!res.ok) throw new Error('TTS failed');
+      return res.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var audio = new Audio(url);
+      BargeIn.setTTSAudio(audio);
+      audio.play().catch(function(err) {
+        console.warn('[VOICE] TTS playback blocked by browser policy:', err);
+        Orb.set('standby');
+      });
+    })
+    .catch(function(err) {
+      console.warn('[VOICE] TTS speak error:', err);
+      Orb.set('standby');
+    });
+  },
+
+  calibrateNoiseFloor: function() {
+    C.append('sys', '[VOICE] Calibrating ambient noise floor... Please stay quiet for 3s.');
+    if (!navigator.mediaDevices) return;
+    var self = this;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+      var aCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var src = aCtx.createMediaStreamSource(stream);
+      var analyser = aCtx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+
+      var samples = [];
+      var interval = setInterval(function() {
+        var buf = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(buf);
+        var sum = 0;
+        for (var i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        samples.push(Math.sqrt(sum / buf.length));
+      }, 50);
+
+      setTimeout(function() {
+        clearInterval(interval);
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        aCtx.close();
+        if (samples.length === 0) return;
+        var avg = samples.reduce(function(a, b) { return a + b; }, 0) / samples.length;
+        var calibrated = Math.max(0.02, Math.min(0.15, avg * 2.2));
+        BargeIn.baseThreshold = calibrated;
+        BargeIn.vadThreshold = calibrated;
+        localStorage.setItem('jarvis_vad_threshold', calibrated.toFixed(4));
+        C.append('sys', '[VOICE] Calibration complete! Noise floor RMS: ' + avg.toFixed(4) + ' | VAD Threshold set to: ' + calibrated.toFixed(4));
+        SFX.notif();
+      }, 3000);
+    });
+  },
+
+  drawWave: function() {
+    var cv = document.getElementById('wv-canvas');
+    if (!cv || !this.analyser) return;
+    var ctx = cv.getContext('2d');
+    var buf = new Uint8Array(this.analyser.frequencyBinCount);
+    var self = this;
+    function frame() {
+      self.animFrame = requestAnimationFrame(frame);
+      self.analyser.getByteTimeDomainData(buf);
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.strokeStyle = 'rgba(63,188,220,.75)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      var sl = cv.width / buf.length;
+      buf.forEach(function(v, i) {
+        var y = (v / 128) * cv.height / 2;
+        if (i === 0) ctx.moveTo(0, y);
+        else ctx.lineTo(i * sl, y);
+      });
       ctx.stroke();
     }
     frame();
   }
 };
-document.getElementById('voice-btn').addEventListener('click',function(){Voice.toggle();});
+document.getElementById('voice-btn').addEventListener('click', function() { Voice.toggle(); });
 
 /* ═══════════════════════════════════════════════════════════════════════
    CHAT ENGINE
@@ -2814,12 +3244,19 @@ var VTrade={KEY:'jarvis_vtrades_v1',positions:[],
 var Finance={sel:0,
   stocks:[
     {t:'RELIANCE',full:'Reliance Industries',price:2945.30,chg:1.24,signal:'Bullish MA crossover',tag:'buy',conf:'high',rsi:58,sma20:2910,ema50:2850,atr:42,vol:'HIGH',seed:42},
-    {t:'TCS',full:'Tata Consultancy Svcs',price:3820.15,chg:-0.41,signal:'Slight pullback - hold',tag:'hold',conf:'med',rsi:44,sma20:3850,ema50:3800,atr:38,vol:'MED',seed:17},
     {t:'INFY',full:'Infosys Limited',price:1672.80,chg:0.83,signal:'RSI oversold bounce',tag:'buy',conf:'high',rsi:32,sma20:1650,ema50:1620,atr:22,vol:'HIGH',seed:93},
     {t:'HDFCBANK',full:'HDFC Bank Ltd',price:1890.45,chg:0.31,signal:'Support holding',tag:'hold',conf:'low',rsi:51,sma20:1880,ema50:1860,atr:18,vol:'MED',seed:61},
     {t:'TATAMOTORS',full:'Tata Motors Ltd',price:985.60,chg:1.15,signal:'Breakout above resistance',tag:'buy',conf:'high',rsi:62,sma20:965,ema50:940,atr:16,vol:'HIGH',seed:55},
     {t:'ICICIBANK',full:'ICICI Bank Ltd',price:1150.25,chg:0.45,signal:'MA50 support holding',tag:'hold',conf:'med',rsi:54,sma20:1140,ema50:1120,atr:14,vol:'MED',seed:78},
-    {t:'WIPRO',full:'Wipro Limited',price:498.20,chg:-1.13,signal:'Bearish divergence',tag:'sell',conf:'med',rsi:67,sma20:505,ema50:510,atr:8,vol:'LOW',seed:28}
+    {t:'TCS',full:'Tata Consultancy Svcs',price:3820.15,chg:-0.41,signal:'Slight pullback - hold',tag:'hold',conf:'med',rsi:44,sma20:3850,ema50:3800,atr:38,vol:'MED',seed:17},
+    {t:'WIPRO',full:'Wipro Limited',price:498.20,chg:-1.13,signal:'Bearish divergence',tag:'sell',conf:'med',rsi:67,sma20:505,ema50:510,atr:8,vol:'LOW',seed:28},
+    {t:'SBIN',full:'State Bank of India',price:845.20,chg:0.65,signal:'PSU Bank strength',tag:'buy',conf:'high',rsi:61,sma20:830,ema50:810,atr:15,vol:'HIGH',seed:88},
+    {t:'BHARTIARTL',full:'Bharti Airtel Ltd',price:1465.70,chg:0.92,signal:'Telecom ARPU growth',tag:'buy',conf:'high',rsi:59,sma20:1440,ema50:1410,atr:24,vol:'HIGH',seed:34},
+    {t:'ITC',full:'ITC Limited',price:492.10,chg:0.18,signal:'FMCG steady yield',tag:'hold',conf:'med',rsi:48,sma20:488,ema50:485,atr:7,vol:'MED',seed:12},
+    {t:'LT',full:'Larsen & Toubro Ltd',price:3620.40,chg:1.45,signal:'Order book expansion',tag:'buy',conf:'high',rsi:64,sma20:3550,ema50:3490,atr:52,vol:'HIGH',seed:67},
+    {t:'SUNPHARMA',full:'Sun Pharma Ltd',price:1712.90,chg:-0.32,signal:'Specialty drug momentum',tag:'hold',conf:'med',rsi:52,sma20:1700,ema50:1680,atr:28,vol:'MED',seed:51},
+    {t:'MARUTI',full:'Maruti Suzuki India',price:12450.00,chg:0.75,signal:'Auto volume recovery',tag:'buy',conf:'med',rsi:57,sma20:12300,ema50:12100,atr:180,vol:'MED',seed:99},
+    {t:'BAJFINANCE',full:'Bajaj Finance Ltd',price:6890.15,chg:-0.85,signal:'AUM growth holding',tag:'hold',conf:'med',rsi:46,sma20:6950,ema50:7100,atr:110,vol:'HIGH',seed:73}
   ],
 
   portfolio:{holdings:[{t:'RELIANCE',qty:10,avgBuy:2800,current:2945.30},{t:'TCS',qty:5,avgBuy:3900,current:3820.15},{t:'INFY',qty:20,avgBuy:1550,current:1672.80}],winRate:62,open:3,perf:{d30:4.2,d60:7.8,d90:11.3}},
@@ -2837,7 +3274,7 @@ var Finance={sel:0,
 
   init:function(){
     Signals.init();
-    this.renderPortfolio();this.renderWatchlist();this.drawChart();this.renderBudget();this.renderAlerts();this.renderIndicators();this.fetchLive();this.startTicker();
+    this.renderPortfolio();this.renderWatchlist();this.drawChart();this.renderBudget();this.renderAlerts();this.renderIndicators();this.fetchLive();this.startTicker();this.fetchEarnings();
     var self=this;
     setInterval(function(){
       self.stocks.forEach(function(s,i){
@@ -3021,6 +3458,34 @@ var Finance={sel:0,
         +'<span class="alert-time">'+esc(a.time)+'</span>'
         +'</div>';
     }).join('');
+  },
+
+  fetchEarnings:function(){
+    var el=document.getElementById('earnings-list');
+    if(!el)return;
+    fetch('/api/trading/earnings?limit=6')
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(data){
+        if(!data||!data.summaries||data.summaries.length===0){
+          el.innerHTML='<div style="font-size:.62rem;color:var(--txt-dim);padding:4px">No earnings reports generated yet. Run scanner pass to check.</div>';
+          return;
+        }
+        el.innerHTML=data.summaries.map(function(s){
+          var tagCls=s.beat_miss_status==='BEAT'?'var(--bull)':s.beat_miss_status==='MISS'?'var(--bear)':'var(--txt-dim)';
+          var surpStr=s.surprise_pct!=null?(s.surprise_pct>0?'+':'')+s.surprise_pct.toFixed(1)+'%':'N/A';
+          return'<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:4px;padding:6px;font-size:.62rem">'
+            +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">'
+            +'<strong style="color:var(--txt-main);font-size:.68rem">'+esc(s.ticker)+'</strong>'
+            +'<span style="color:'+tagCls+';font-weight:bold;font-size:.6rem;border:1px solid '+tagCls+';padding:1px 4px;border-radius:3px">'+esc(s.beat_miss_status)+' ('+surpStr+')</span>'
+            +'</div>'
+            +'<div style="color:var(--txt-dim);margin-bottom:3px;font-size:.58rem">Reported: '+esc(s.earnings_date)+'</div>'
+            +'<div style="color:var(--txt-muted);line-height:1.25">'+esc(s.summary)+'</div>'
+            +'</div>';
+        }).join('');
+      })
+      .catch(function(err){
+        el.innerHTML='<div style="font-size:.62rem;color:var(--txt-dim);padding:4px">Earnings service ready.</div>';
+      });
   },
 
   startTicker:function(){this.updateTickerTape();},
@@ -3233,6 +3698,7 @@ Finance.init();
 VTrade.init();
 Notifs.init();
 StudyStats.init();
+BargeIn.init();
 WS.connect();
 
 /* ─── JARVIS BOOT OVERLAY CONTROLLER ─── */

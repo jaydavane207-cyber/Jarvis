@@ -7,6 +7,7 @@ uvicorn
 websockets
 pydantic
 pydantic-settings
+python-multipart           # Form data upload handling for audio endpoints
 
 # ── HTTP clients ─────────────────────────────────────────────────────────────
 requests

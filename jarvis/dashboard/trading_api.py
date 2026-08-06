@@ -274,6 +274,47 @@ def get_profile():
     return {"profile": get_profile_summary(), "generated_at": datetime.now().isoformat()}
 
 
+@app.get("/api/trading/earnings")
+def get_earnings_summaries(
+    ticker: Optional[str] = Query(None, description="Optional filter by ticker symbol e.g. RELIANCE"),
+    limit: int = Query(15, description="Max summaries to return"),
+):
+    """Returns recent earnings summaries stored in SQLite database."""
+    from jarvis.agents.earnings_summarizer import earnings_summarizer
+    if ticker:
+        s = earnings_summarizer.get_summary_by_ticker(ticker)
+        summaries = [s] if s else []
+    else:
+        summaries = earnings_summarizer.get_recent_summaries(limit=limit)
+
+    return {
+        "count": len(summaries),
+        "summaries": summaries,
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+@app.post("/api/trading/scan-earnings")
+def trigger_earnings_scan(
+    symbol: Optional[str] = Query(None, description="Optional single ticker to scan e.g. RELIANCE"),
+):
+    """Triggers an earnings scan for watchlist stocks or a specific ticker."""
+    from jarvis.agents.earnings_summarizer import earnings_summarizer
+    if symbol:
+        res = earnings_summarizer.process_and_save_earnings(symbol)
+        summaries = [res] if res else []
+    else:
+        watchlist_symbols = [w["symbol"] for w in WATCHLIST]
+        summaries = earnings_summarizer.scan_watchlist_earnings(watchlist_symbols)
+
+    return {
+        "scanned_count": 1 if symbol else len(WATCHLIST),
+        "new_summaries_count": len(summaries),
+        "summaries": summaries,
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "JARVIS Trading HUD API", "version": "2.0.0"}
