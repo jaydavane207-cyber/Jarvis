@@ -39,14 +39,97 @@ class SupabaseChatStore:
     def __init__(self):
         self.client = get_supabase()
 
-    def add_message(self, role: str, content: str):
+    def add_message(self, role: str, content: str, conversation_id: Optional[str] = None, step_index: Optional[int] = None, tool_calls: Optional[List[Dict[str, Any]]] = None, title: Optional[str] = None):
         if not self.client:
             return
         try:
             enc_content = crypto_manager.encrypt(content)
-            self.client.table("messages").insert({"role": role, "content": enc_content}).execute()
+            
+            if conversation_id:
+                try:
+                    c_title = title or (content.strip()[:48] + "..." if len(content) > 48 else content.strip()) or "Untitled Session"
+                    self.client.table("conversations").upsert({
+                        "id": conversation_id,
+                        "title": c_title,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }).execute()
+                except Exception as ex:
+                    logger.debug(f"Conversations table upsert debug: {ex}")
+
+            data = {"role": role, "content": enc_content}
+            if conversation_id:
+                data["conversation_id"] = conversation_id
+            if step_index is not None:
+                data["step_index"] = step_index
+            if tool_calls is not None:
+                data["tool_calls"] = tool_calls
+
+            self.client.table("messages").insert(data).execute()
         except Exception as e:
             logger.error(f"SupabaseChatStore.add_message error: {e}")
+
+    def list_conversations(self, limit: int = 50) -> List[Dict[str, Any]]:
+        if not self.client:
+            return []
+        try:
+            # Try fetching from conversations table
+            res = self.client.table("conversations").select("id, title, message_count, updated_at").order("updated_at", desc=True).limit(limit).execute()
+            if res.data and len(res.data) > 0:
+                results = []
+                for row in res.data:
+                    results.append({
+                        "id": row.get("id"),
+                        "title": row.get("title") or "Untitled Session",
+                        "count": row.get("message_count") or 1
+                    })
+                return results
+
+            # Fallback: query messages table grouped by conversation_id
+            res_msg = self.client.table("messages").select("conversation_id, role, content, timestamp").order("id", desc=True).limit(limit * 10).execute()
+            seen = {}
+            for row in res_msg.data:
+                cid = row.get("conversation_id") or "default"
+                if cid not in seen:
+                    raw_c = row.get("content", "")
+                    try:
+                        raw_c = crypto_manager.decrypt(raw_c)
+                    except Exception:
+                        pass
+                    title = raw_c.strip()[:48] + "..." if len(raw_c) > 48 else raw_c.strip() or "Untitled Session"
+                    seen[cid] = {"id": cid, "title": title, "count": 1}
+                else:
+                    seen[cid]["count"] += 1
+            return list(seen.values())[:limit]
+        except Exception as e:
+            logger.error(f"SupabaseChatStore.list_conversations error: {e}")
+            return []
+
+    def get_conversation_messages(self, conversation_id: str) -> List[Dict[str, Any]]:
+        if not self.client:
+            return []
+        try:
+            res = self.client.table("messages").select("id, conversation_id, role, content, step_index, timestamp, tool_calls").eq("conversation_id", conversation_id).order("id", desc=False).execute()
+            results = []
+            for row in res.data:
+                raw_c = row.get("content", "")
+                try:
+                    content_str = crypto_manager.decrypt(raw_c)
+                except Exception:
+                    content_str = raw_c
+                
+                results.append({
+                    "step_index": row.get("step_index", 0),
+                    "source": row.get("role", "user"),
+                    "role": row.get("role", "user"),
+                    "type": "USER_INPUT" if row.get("role") == "user" else "PLANNER_RESPONSE",
+                    "content": content_str,
+                    "tool_calls": row.get("tool_calls"),
+                    "timestamp": row.get("timestamp")
+                })
+            return results
+        except Exception as e:
+            logger.error(f"SupabaseChatStore.get_conversation_messages error: {e}")
+            return []
 
     def get_recent_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
         if not self.client:
@@ -56,7 +139,10 @@ class SupabaseChatStore:
             results = []
             for row in reversed(res.data):
                 d = dict(row)
-                d['content'] = crypto_manager.decrypt(d['content'])
+                try:
+                    d['content'] = crypto_manager.decrypt(d['content'])
+                except Exception:
+                    pass
                 results.append(d)
             return results
         except Exception as e:
@@ -77,9 +163,8 @@ class SupabaseChatStore:
         if not self.client:
             return
         try:
-            # Note: Supabase doesn't easily allow DELETE without WHERE.
-            # Using neq id to 0 to delete all records.
             self.client.table("messages").delete().neq("id", 0).execute()
+            self.client.table("conversations").delete().neq("id", "0").execute()
         except Exception as e:
             logger.error(f"SupabaseChatStore.clear_history error: {e}")
 

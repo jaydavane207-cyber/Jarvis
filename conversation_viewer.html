@@ -881,12 +881,13 @@
             
             const sessionMeta = sessions.find(s => s.id === id);
             let text = "";
-            if (sessionMeta.files && sessionMeta.files.length > 0) {
+            if (sessionMeta && sessionMeta.files && sessionMeta.files.length > 0) {
                 const file = sessionMeta.files.find(f => f.name === 'transcript_full.jsonl') || sessionMeta.files.find(f => f.name === 'transcript.jsonl') || sessionMeta.files[0];
                 if (file) text = await file.text();
             } else {
                 try {
-                    const res = await fetch('/api/conversations/' + id);
+                    const baseUrl = window.apiBaseUrl || '';
+                    const res = await fetch(baseUrl + '/api/conversations/' + id);
                     if (res.ok) text = await res.text();
                 } catch(e) { console.error(e); }
             }
@@ -1282,30 +1283,40 @@
             downloadFile(`session_${primarySessionId}.html`, html);
         });
 
-        document.getElementById('exportJsonBtn').addEventListener('click', () => {
-            if (!primaryData.length) return;
-            downloadFile(`session_${primarySessionId}.json`, JSON.stringify(primaryData, null, 2));
-        });
-
-        document.getElementById('exportPdfBtn').addEventListener('click', () => {
-            window.print();
-        });
-
-        document.getElementById('copyLinkBtn').addEventListener('click', (e) => {
-            navigator.clipboard.writeText(window.location.href).then(() => {
-                const icon = e.currentTarget.querySelector('i');
-                icon.className = 'fa-solid fa-check'; setTimeout(()=> icon.className = 'fa-solid fa-link', 2000);
+        const exportJsonBtn = document.getElementById('exportJsonBtn');
+        if(exportJsonBtn) {
+            exportJsonBtn.addEventListener('click', () => {
+                if (!primaryData.length) return;
+                downloadFile(`session_${primarySessionId}.json`, JSON.stringify(primaryData, null, 2));
             });
-        });
+        }
 
-        document.getElementById('copyIdBtn').addEventListener('click', (e) => {
-            if(primarySessionId) {
-                navigator.clipboard.writeText(primarySessionId).then(() => {
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        if(exportPdfBtn) {
+            exportPdfBtn.addEventListener('click', () => { window.print(); });
+        }
+
+        const copyLinkBtn = document.getElementById('copyLinkBtn');
+        if(copyLinkBtn) {
+            copyLinkBtn.addEventListener('click', (e) => {
+                navigator.clipboard.writeText(window.location.href).then(() => {
                     const icon = e.currentTarget.querySelector('i');
-                    icon.className = 'fa-solid fa-check'; setTimeout(()=> icon.className = 'fa-solid fa-fingerprint', 2000);
+                    if(icon) { icon.className = 'fa-solid fa-check'; setTimeout(()=> icon.className = 'fa-solid fa-link', 2000); }
                 });
-            }
-        });
+            });
+        }
+
+        const copyIdBtn = document.getElementById('copyIdBtn');
+        if(copyIdBtn) {
+            copyIdBtn.addEventListener('click', (e) => {
+                if(primarySessionId) {
+                    navigator.clipboard.writeText(primarySessionId).then(() => {
+                        const icon = e.currentTarget.querySelector('i');
+                        if(icon) { icon.className = 'fa-solid fa-check'; setTimeout(()=> icon.className = 'fa-solid fa-fingerprint', 2000); }
+                    });
+                }
+            });
+        }
 
         function escapeHtml(unsafe) {
             return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -1314,8 +1325,21 @@
         // Auto-fetch data from backend API if available
         (async function initData() {
             try {
-                const res = await fetch('/api/conversations');
-                if (res.ok) {
+                let apiBase = '';
+                let res;
+                if (window.location.protocol !== 'file:') {
+                    try {
+                        res = await fetch('/api/conversations');
+                    } catch(e) {}
+                }
+                if (!res || !res.ok) {
+                    apiBase = 'http://127.0.0.1:8080';
+                    try {
+                        res = await fetch(apiBase + '/api/conversations');
+                    } catch(e) {}
+                }
+                if (res && res.ok) {
+                    window.apiBaseUrl = apiBase;
                     const data = await res.json();
                     if (data && data.length > 0) {
                         sessions = data.map(d => ({
@@ -1327,10 +1351,11 @@
                         }));
                         log1.innerHTML = '<p style="text-align:center; color: var(--primary); font-family: \'Rajdhani\'; letter-spacing: 2px; margin-top:50px;">DATABANKS SYNCHRONIZED.</p>';
                         openSessionBrowser();
-                        // Auto load first session
-                        if (sessions.length > 0) {
-                            loadSession(sessions[0].id, true);
-                        }
+                        
+                        const params = new URLSearchParams(window.location.search);
+                        const targetId = params.get('id');
+                        const initialId = (targetId && sessions.some(s => s.id === targetId)) ? targetId : sessions[0].id;
+                        loadSession(initialId, true);
                     }
                 }
             

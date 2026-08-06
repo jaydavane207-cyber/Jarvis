@@ -61,39 +61,67 @@ def serve_viewer():
     except FileNotFoundError:
         return "conversation_viewer.html not found in current directory."
 
+try:
+    from jarvis.memory.supabase_store import SupabaseChatStore
+    supabase_store = SupabaseChatStore()
+except Exception:
+    supabase_store = None
+
 @app.get("/api/conversations")
 def list_conversations():
-    if not os.path.exists(BRAIN_DIR):
-        return []
-
     conversations = []
-    for item in os.listdir(BRAIN_DIR):
-        convo_dir = os.path.join(BRAIN_DIR, item)
-        if os.path.isdir(convo_dir):
-            logs_dir = os.path.join(convo_dir, ".system_generated", "logs")
-            if not os.path.exists(logs_dir):
-                # Fallback to older struct if needed, but transcripts are usually in logs/
-                logs_dir = convo_dir
 
-            transcript_path = os.path.join(logs_dir, "transcript.jsonl")
-            if not os.path.exists(transcript_path):
-                transcript_path = os.path.join(logs_dir, "transcript_full.jsonl")
+    # 1. Try pulling sessions from Supabase
+    if supabase_store and supabase_store.client:
+        try:
+            supa_convos = supabase_store.list_conversations()
+            if supa_convos:
+                conversations.extend(supa_convos)
+        except Exception as e:
+            pass
 
-            if os.path.exists(transcript_path):
-                title = extract_title(transcript_path)
-                count = count_lines(transcript_path)
-                conversations.append({
-                    "id": item,
-                    "title": title,
-                    "count": count
-                })
+    # 2. Add/Fallback local disk conversations
+    if os.path.exists(BRAIN_DIR):
+        existing_ids = {c["id"] for c in conversations}
+        for item in os.listdir(BRAIN_DIR):
+            if item in existing_ids:
+                continue
+            convo_dir = os.path.join(BRAIN_DIR, item)
+            if os.path.isdir(convo_dir):
+                logs_dir = os.path.join(convo_dir, ".system_generated", "logs")
+                if not os.path.exists(logs_dir):
+                    logs_dir = convo_dir
+
+                transcript_path = os.path.join(logs_dir, "transcript.jsonl")
+                if not os.path.exists(transcript_path):
+                    transcript_path = os.path.join(logs_dir, "transcript_full.jsonl")
+
+                if os.path.exists(transcript_path):
+                    title = extract_title(transcript_path)
+                    count = count_lines(transcript_path)
+                    conversations.append({
+                        "id": item,
+                        "title": title,
+                        "count": count
+                    })
     
     # Sort by line count descending
-    conversations.sort(key=lambda x: x["count"], reverse=True)
+    conversations.sort(key=lambda x: x.get("count", 0), reverse=True)
     return conversations
 
 @app.get("/api/conversations/{convo_id}", response_class=PlainTextResponse)
 def get_conversation(convo_id: str):
+    # 1. Check Supabase first
+    if supabase_store and supabase_store.client:
+        try:
+            msgs = supabase_store.get_conversation_messages(convo_id)
+            if msgs:
+                lines = [json.dumps(m) for m in msgs]
+                return "\n".join(lines)
+        except Exception as e:
+            pass
+
+    # 2. Fallback to local disk file
     convo_dir = os.path.join(BRAIN_DIR, convo_id)
     if not os.path.exists(convo_dir):
         return "Conversation not found."

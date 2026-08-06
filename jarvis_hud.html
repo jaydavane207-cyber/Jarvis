@@ -1665,6 +1665,26 @@ body::after {
   </div>
 </div>
 
+<div class="modal-overlay" id="sess-modal" role="dialog" aria-modal="true" aria-labelledby="sess-modal-title">
+  <div class="modal-box cyan" style="max-width:760px; width:90vw; max-height:85vh; display:flex; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(63,188,220,.25); padding-bottom:8px; margin-bottom:10px;">
+      <div>
+        <div class="modal-title cyan" id="sess-modal-title" style="margin:0; font-size:.9rem;">SESSION TRANSCRIPT</div>
+        <div id="sess-modal-sub" style="font-family:var(--font-mono); font-size:.65rem; color:rgba(210,225,235,.5); margin-top:2px;">ID: --</div>
+      </div>
+      <button class="modal-btn cancel" id="sess-modal-close" style="padding:4px 10px;">&#10005; CLOSE</button>
+    </div>
+    <div id="sess-modal-body" class="modal-body" style="flex:1; overflow-y:auto; font-family:var(--font-mono); font-size:.72rem; display:flex; flex-direction:column; gap:10px; padding-right:6px; margin-bottom:10px;">
+    </div>
+    <div class="modal-actions" style="border-top:1px solid rgba(63,188,220,.15); padding-top:8px; justify-content:space-between; align-items:center;">
+      <span style="font-size:.62rem; color:rgba(210,225,235,.4)">SYNCHRONIZED WITH BRAIN DATABANK</span>
+      <a id="sess-modal-open-full" href="#" target="_blank" class="modal-btn confirm" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+        <span>&#9889; OPEN STANDALONE VIEWER</span>
+      </a>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════════════════════
    AMBIENT BACKGROUND — constellation field, stays peripheral
@@ -2002,29 +2022,72 @@ var Notifs={KEY:'jarvis_notifs_v3',list:[],
    SESSIONS
 ══════════════════════════════════════════════════════════════════════ */
 var Sessions={
+  apiBase: CFG.backend,
+  convos: [],
   init:function(){
     this.fetchReal();
-    document.getElementById('sess-search').addEventListener('input',function(e){Sessions.filter(e.target.value);});
-    document.getElementById('mountbtn').addEventListener('click',function(){Sessions.fetchReal();});
+    var searchEl = document.getElementById('sess-search');
+    if(searchEl) searchEl.addEventListener('input',function(e){Sessions.filter(e.target.value);});
+    var mountEl = document.getElementById('mountbtn');
+    if(mountEl) mountEl.addEventListener('click',function(){Sessions.fetchReal();});
+    var closeBtn = document.getElementById('sess-modal-close');
+    if(closeBtn){
+      closeBtn.addEventListener('click', function(){
+        document.getElementById('sess-modal').classList.remove('open');
+      });
+    }
   },
   fetchReal:function(){
-    var el=document.getElementById('sess-status');el.textContent='';
-    fetch(CFG.backend+'/api/conversations',{signal:AbortSignal.timeout(5000)})
-      .then(function(r){if(!r.ok)throw new Error('bad');return r.json();})
+    var el=document.getElementById('sess-status');
+    if(el){ el.textContent='FETCHING...'; el.style.color='rgba(63,188,220,.7)'; }
+    
+    var tryFetch = function(baseUrl) {
+      return fetch(baseUrl + '/api/conversations', {signal: AbortSignal.timeout(4000)})
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    };
+
+    tryFetch(CFG.backend)
       .then(function(data){
-        if(!data||!data.length)return;
-        Sessions.render(data);
-        el.textContent='LIVE — '+data.length+' SESSIONS';
-        el.style.color='var(--bull)';
-        ConnStatus.set(true);
+        Sessions.apiBase = CFG.backend;
+        Sessions.onSuccess(data);
       })
-      .catch(function(){el.textContent='OFFLINE — RUN VIEWER_SERVER.PY';el.style.color='rgba(240,168,50,.7)';});
+      .catch(function(){
+        var alt = 'http://127.0.0.1:8080';
+        tryFetch(alt)
+          .then(function(data){
+            Sessions.apiBase = alt;
+            Sessions.onSuccess(data);
+          })
+          .catch(function(){
+            if(el){
+              el.textContent='OFFLINE — RUN VIEWER_SERVER.PY';
+              el.style.color='rgba(240,168,50,.7)';
+            }
+          });
+      });
+  },
+  onSuccess:function(data){
+    var el=document.getElementById('sess-status');
+    if(!data||!data.length){
+      if(el) el.textContent='NO SESSIONS FOUND';
+      return;
+    }
+    Sessions.convos = data;
+    Sessions.render(data);
+    if(el){
+      el.textContent='LIVE — '+data.length+' SESSIONS';
+      el.style.color='var(--bull)';
+    }
+    if(window.ConnStatus) ConnStatus.set(true);
   },
   render:function(convos){
-    document.getElementById('slist').innerHTML=convos.slice(0,25).map(function(c,i){
+    var list = document.getElementById('slist');
+    if(!list) return;
+    list.innerHTML=convos.slice(0,35).map(function(c,i){
       var p=i===0?' pinned':'';var s=i===0?'<span class="pstar">&#9733;</span>':'';
       var t=(c.title||'UNTITLED').toUpperCase().slice(0,48);
-      return'<div class="scard'+p+'" data-id='+(c.id||'')+'>'+s+'<div class="stitle">'+esc(t)+'</div><div class="smeta"><span>'+(c.count||0)+'</span><span>'+(c.id?c.id.slice(0,8).toUpperCase():'??????')+'</span></div></div>';
+      return'<div class="scard'+p+'" data-id="'+esc(c.id)+'" onclick="Sessions.openModal(\''+esc(c.id)+'\')" style="cursor:pointer;" title="Click to view transcript">'
+        +s+'<div class="stitle">'+esc(t)+'</div><div class="smeta"><span>'+(c.count||0)+' msgs</span><span>'+(c.id?c.id.slice(0,8).toUpperCase():'??????')+'</span></div></div>';
     }).join('');
   },
   filter:function(q){
@@ -2033,6 +2096,67 @@ var Sessions={
       if(!t)return;
       card.style.display=t.textContent.toLowerCase().includes(q.toLowerCase())||q===''?'':'none';
     });
+  },
+  openModal:function(id){
+    var c = Sessions.convos.find(function(x){ return x.id === id; });
+    var title = c ? c.title : id;
+    document.getElementById('sess-modal-title').textContent = (title || 'SESSION TRANSCRIPT').toUpperCase();
+    document.getElementById('sess-modal-sub').textContent = 'ID: ' + id;
+    
+    var fullViewerUrl = (Sessions.apiBase || 'http://127.0.0.1:8080') + '/?id=' + encodeURIComponent(id);
+    document.getElementById('sess-modal-open-full').href = fullViewerUrl;
+    
+    var body = document.getElementById('sess-modal-body');
+    body.innerHTML = '<div style="color:var(--sys-accent); text-align:center; padding:20px;">DECRYPTING LOGS...</div>';
+    
+    document.getElementById('sess-modal').classList.add('open');
+
+    fetch(Sessions.apiBase + '/api/conversations/' + id, {signal: AbortSignal.timeout(6000)})
+      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function(text){
+        var lines = text.split('\n').filter(function(l){ return l.trim() !== ''; });
+        var html = '';
+        var msgCount = 0;
+        lines.forEach(function(l){
+          try {
+            var item = JSON.parse(l);
+            var src = item.source || item.role || item.type || 'SYSTEM';
+            var content = item.content || '';
+            if (typeof content === 'object') content = JSON.stringify(content, null, 2);
+            if (!content && item.tool_calls) {
+              content = '[Tool Executed: ' + item.tool_calls.map(function(t){ return t.name || (t.function && t.function.name) || 'tool'; }).join(', ') + ']';
+            }
+            
+            if (content) {
+              msgCount++;
+              var isUser = (src === 'USER_EXPLICIT' || item.type === 'USER_INPUT' || src === 'user');
+              var tag = isUser ? 'USER' : (src === 'MODEL' ? 'ASSISTANT' : src.toUpperCase());
+              var color = isUser ? 'var(--sys-accent)' : 'var(--bull)';
+              var bg = isUser ? 'rgba(63,188,220,.08)' : 'rgba(34,209,122,.08)';
+              var border = isUser ? 'rgba(63,188,220,.2)' : 'rgba(34,209,122,.2)';
+              
+              if (content.startsWith('<USER_REQUEST>')) {
+                var m = content.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
+                if (m) content = m[1].trim();
+              }
+
+              var stepIdx = item.step_index !== undefined ? item.step_index : msgCount;
+
+              html += '<div style="background:'+bg+'; border:1px solid '+border+'; padding:8px 10px; clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);">'
+                + '<div style="font-size:.6rem; font-weight:700; color:'+color+'; margin-bottom:4px; letter-spacing:1px; display:flex; justify-content:space-between;">'
+                + '<span>' + tag + '</span><span style="opacity:.5; font-weight:normal;">STEP #' + stepIdx + '</span>'
+                + '</div>'
+                + '<div style="white-space:pre-wrap; word-break:break-word; color:rgba(210,225,235,.9); font-size:.72rem;">' + esc(content.slice(0, 1500)) + (content.length > 1500 ? '...' : '') + '</div>'
+                + '</div>';
+            }
+          } catch(e){}
+        });
+        if(!html) html = '<div style="color:var(--bear); text-align:center; padding:20px;">NO DISPLAYABLE MESSAGES IN TRANSCRIPT</div>';
+        body.innerHTML = html;
+      })
+      .catch(function(err){
+        body.innerHTML = '<div style="color:var(--bear); text-align:center; padding:20px;">FAILED TO LOAD TRANSCRIPT: ' + esc(err.message) + '</div>';
+      });
   }
 };
 
@@ -2722,18 +2846,38 @@ var Finance={sel:0,
   },
 
 
+  fetchShadowPortfolio:function(){
+    var self=this;
+    var authHeader='Basic '+btoa('jarvis:admin123');
+    fetch(CFG.backend+'/api/shadow-portfolio',{
+      headers:{'Authorization':authHeader}
+    })
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data||!data.trades)return;
+        var trades=data.trades;
+        var totalVal=trades.reduce(function(a,t){return a+(t.budget_used||0);},0);
+        var openCount=trades.filter(function(t){return !t.outcome;}).length;
+        var wr=(data.stats&&data.stats.win_rate)?data.stats.win_rate:0;
+        var pe=document.getElementById('port-pnl');
+        if(pe){pe.textContent='₹0.00 (REAL DB)';pe.className='score-val pos';}
+        var te=document.getElementById('port-total');
+        if(te)te.textContent='₹'+totalVal.toLocaleString('en-IN',{maximumFractionDigits:2});
+        var we=document.getElementById('port-winrate');
+        if(we)we.textContent=wr+'%';
+        var oe=document.getElementById('port-open');
+        if(oe)oe.textContent=openCount+' ACTIVE';
+        var ot=document.getElementById('open-trades');
+        if(ot&&trades.length>0){
+          ot.innerHTML=trades.slice(0,5).map(function(t){
+            return '<div style="font-size:0.54rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between"><span><strong style="color:var(--bull)">'+t.ticker+'</strong> ('+t.action+')</span><span>₹'+t.price_at_rec.toFixed(2)+' × '+t.qty+'</span></div>';
+          }).join('');
+        }
+      }).catch(function(e){console.log('Shadow portfolio fetch error:',e);});
+  },
+
   renderPortfolio:function(){
-    var p=this.portfolio;
-    var tv=p.holdings.reduce(function(a,h){return a+h.qty*h.current;},0);
-    var pnl=p.holdings.reduce(function(a,h){return a+h.qty*(h.current-h.avgBuy);},0);
-    var pe=document.getElementById('port-pnl');
-    pe.textContent=(pnl>=0?'+ ':'- ')+'₹'+Math.abs(pnl).toFixed(2);
-    pe.className='score-val '+(pnl>=0?'pos':'neg');
-    document.getElementById('port-total').textContent='₹'+tv.toLocaleString('en-IN',{maximumFractionDigits:2});
-    document.getElementById('port-winrate').textContent=p.winRate+'%';
-    document.getElementById('port-winrate').className='score-val '+(p.winRate>=50?'pos':'neg');
-    document.getElementById('port-open').textContent=p.open+' / 2 MAX';
-    document.getElementById('port-perf').textContent='+'+p.perf.d30+'% / +'+p.perf.d60+'% / +'+p.perf.d90+'%';
+    this.fetchShadowPortfolio();
   },
 
   renderWatchlist:function(){
@@ -2882,6 +3026,20 @@ var WS={socket:null,
             setTimeout(function(){Orb.set('standby');},2000);
           }else if(msg.type==='notification'){
             Notifs.add(msg.severity||'info',msg.title||'System',msg.body||'',msg.context_id||null);
+          }else if(msg.type==='trading_signal'||msg.type==='signal'){
+            if(typeof Signals!=='undefined'&&Signals.addSignal){
+              Signals.addSignal({
+                id:Date.now(),
+                ticker:msg.ticker||'NIFTY',
+                action:msg.action||'BUY',
+                entry:msg.entry||msg.price||0,
+                target:msg.target||0,
+                stop:msg.stop||0,
+                conf:msg.conf||'HIGH',
+                time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}),
+                note:msg.note||msg.summary||''
+              });
+            }
           }else if(msg.type==='price_update'){
             Finance.stocks.forEach(function(s){
               if(s.t===msg.ticker){
@@ -2907,6 +3065,7 @@ Notes.init();
 QCmds.init();
 SysMon.init();
 C.init();
+Signals.init();
 Finance.init();
 VTrade.init();
 Notifs.init();
