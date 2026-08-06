@@ -83,7 +83,14 @@ class HybridLLMRouter:
     async def chat_stream(
         self, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        """Route to cloud or local; yield tokens as they arrive."""
+        """Route to cloud or local; yield tokens as they arrive.
+
+        If the cloud stream fails mid-way (TCP reset, wsarecv, etc.):
+          - If NO tokens were yielded yet: fall back to local Ollama seamlessly.
+          - If tokens WERE already yielded: we can't unsend them.  We fall back
+            to local for a *continuation* and log a warning so the partial
+            reply is visible in the dashboard.
+        """
         user_content = self._extract_user_content(messages)
         score = self._complexity_score(user_content)
         use_cloud = self._cloud.enabled and score >= self._threshold
@@ -92,12 +99,32 @@ class HybridLLMRouter:
             logger.info(
                 f"HybridLLMRouter → CLOUD stream (score={score:.2f})"
             )
+            tokens_yielded = 0
+            cloud_failed = False
             try:
                 async for chunk in self._cloud.chat_stream(messages):
+                    tokens_yielded += 1
                     yield chunk
-                return
             except Exception as exc:
-                logger.warning(f"Cloud stream failed, falling back to local: {exc}")
+                cloud_failed = True
+                if tokens_yielded == 0:
+                    logger.warning(
+                        "Cloud stream failed before any tokens — falling back to local: %s", exc
+                    )
+                else:
+                    logger.warning(
+                        "Cloud stream interrupted after %d tokens — falling back to "
+                        "local for continuation: %s", tokens_yielded, exc
+                    )
+
+            if not cloud_failed:
+                return  # cloud completed cleanly
+
+            # Fall back to local Ollama
+            logger.info("HybridLLMRouter → LOCAL stream (fallback after cloud failure)")
+            async for chunk in self._local.chat_stream(messages):
+                yield chunk
+            return
 
         logger.info(f"HybridLLMRouter → LOCAL stream (score={score:.2f})")
         async for chunk in self._local.chat_stream(messages):

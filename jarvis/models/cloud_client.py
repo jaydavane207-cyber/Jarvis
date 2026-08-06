@@ -2,6 +2,14 @@
 CloudClient — wraps the Anthropic API with streaming support.
 
 Falls back gracefully if ANTHROPIC_API_KEY is not set.
+
+Network error handling
+──────────────────────
+WindowsWSARECV / connection-forcibly-closed errors (e.g. TCP reset from
+Google infra mid-stream) are caught *inside* the async generator so they
+don't propagate as unhandled exceptions and crash the WebSocket handler.
+When a mid-stream reset is detected a RuntimeError is raised so the hybrid
+router can fall back to the local Ollama model.
 """
 from __future__ import annotations
 import logging
@@ -96,10 +104,18 @@ class AnthropicClient:
     async def chat_stream(
         self, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        """Async streaming chat. Yields tokens as strings."""
+        """
+        Async streaming chat. Yields tokens as strings.
+
+        Mid-stream TCP resets (Windows wsarecv error, connection forcibly
+        closed by remote host) are caught inside the generator so they don't
+        silently corrupt the WebSocket frame sequence.  A RuntimeError is
+        raised cleanly so HybridLLMRouter can fall back to local Ollama.
+        """
         if not self._enabled:
             raise RuntimeError("Anthropic client not enabled")
         system, conv = self._split_messages(messages)
+        tokens_yielded = 0
         try:
             async with self._async_client.messages.stream(
                 model=self.model,
@@ -107,8 +123,21 @@ class AnthropicClient:
                 system=system or "You are JARVIS, a highly intelligent AI assistant.",
                 messages=conv,
             ) as stream:
-                async for text in stream.text_stream:
-                    yield text
+                try:
+                    async for text in stream.text_stream:
+                        tokens_yielded += 1
+                        yield text
+                except Exception as mid_exc:
+                    # Mid-stream network reset (e.g. wsarecv connection reset)
+                    logger.warning(
+                        "AnthropicClient: mid-stream error after %d tokens — %s",
+                        tokens_yielded, mid_exc
+                    )
+                    raise RuntimeError(
+                        f"Cloud LLM stream interrupted after {tokens_yielded} tokens: {mid_exc}"
+                    ) from mid_exc
+        except RuntimeError:
+            raise  # already wrapped above — let hybrid router handle it
         except Exception as exc:
-            logger.error(f"AnthropicClient.chat_stream error: {exc}")
+            logger.error("AnthropicClient.chat_stream setup error: %s", exc)
             raise RuntimeError(f"Cloud LLM stream error: {exc}") from exc

@@ -51,7 +51,9 @@ class Settings(BaseSettings):
     # ── Trading / Stocks (PRD §5.5) ───────────────────────────────────────────
     trading_budget_min: int = 10000   # ₹ INR
     trading_budget_max: int = 50000   # ₹ INR
+    trading_signals_enabled: bool = True  # Kill-switch toggle for signal scanner
     virustotal_api_key: Optional[str] = None   # Optional: for URL reputation checks
+
 
     # ── Reliability (PRD §5.8) ────────────────────────────────────────────────
     # Max latency (ms) before logging a regression warning

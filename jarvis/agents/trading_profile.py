@@ -28,9 +28,10 @@ logger = logging.getLogger(__name__)
 
 # ── Capital constants ──────────────────────────────────────────────────────────
 TOTAL_CAPITAL: float = 10_000.0          # ₹10,000
-RISK_PCT_PER_TRADE: float = 0.0075       # 0.75%
-MAX_RISK_PER_TRADE: float = TOTAL_CAPITAL * RISK_PCT_PER_TRADE   # ₹75 hard cap
+RISK_PCT_PER_TRADE: float = 0.01         # 1.0% (₹100 per trade risk cap)
+MAX_RISK_PER_TRADE: float = TOTAL_CAPITAL * RISK_PCT_PER_TRADE   # ₹100 hard cap
 MAX_CONCURRENT_POSITIONS: int = 2
+
 
 # ATR stop-loss multipliers for swing trades
 ATR_SL_MULTIPLIER_MIN: float = 1.5
@@ -71,14 +72,22 @@ FO_IV_HIGH_THRESHOLD: float = 0.30        # >30% IV triggers "High IV" flag
 FO_NEAR_EXPIRY_DAYS: int = 5              # <5 days to expiry triggers flag
 FO_LOW_OI_THRESHOLD: int = 1_000          # <1,000 OI triggers "Low Liquidity" flag
 
-# Watchlist — all watch-only at initialisation
+# Signal thresholds
+CONFIDENCE_REALTIME_THRESHOLD: int = 4   # Confluence score >= 4 triggers real-time push (80%+)
+CONFIDENCE_EOD_THRESHOLD: int = 2        # Confluence score 2-3 buffered for 15:30 IST digest
+SWING_HORIZON_DAYS: tuple[int, int] = (2, 5)
+
+# Watchlist — unified 7-stock watchlist (all watch-only at init)
 WATCHLIST: List[Dict] = [
-    {"symbol": "TATAMOTORS", "ns_ticker": "TATAMOTORS.NS", "status": "watch-only", "position": None},
-    {"symbol": "ICICIBANK",  "ns_ticker": "ICICIBANK.NS",  "status": "watch-only", "position": None},
-    {"symbol": "INFY",       "ns_ticker": "INFY.NS",       "status": "watch-only", "position": None},
-    {"symbol": "HDFCBANK",   "ns_ticker": "HDFCBANK.NS",   "status": "watch-only", "position": None},
-    {"symbol": "RELIANCE",   "ns_ticker": "RELIANCE.NS",   "status": "watch-only", "position": None},
+    {"symbol": "RELIANCE",   "ns_ticker": "RELIANCE.NS",   "status": "watch-only", "position": None, "sector": "Energy"},
+    {"symbol": "INFY",       "ns_ticker": "INFY.NS",       "status": "watch-only", "position": None, "sector": "IT"},
+    {"symbol": "HDFCBANK",   "ns_ticker": "HDFCBANK.NS",   "status": "watch-only", "position": None, "sector": "Banking"},
+    {"symbol": "TATAMOTORS", "ns_ticker": "TATAMOTORS.NS", "status": "watch-only", "position": None, "sector": "Auto"},
+    {"symbol": "ICICIBANK",  "ns_ticker": "ICICIBANK.NS",  "status": "watch-only", "position": None, "sector": "Banking"},
+    {"symbol": "TCS",        "ns_ticker": "TCS.NS",        "status": "watch-only", "position": None, "sector": "IT"},
+    {"symbol": "WIPRO",      "ns_ticker": "WIPRO.NS",      "status": "watch-only", "position": None, "sector": "IT"},
 ]
+
 
 
 # ── Confidence Levels ─────────────────────────────────────────────────────────

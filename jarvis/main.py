@@ -18,13 +18,15 @@ WebSocket protocol:
 """
 from __future__ import annotations
 import asyncio
+import hashlib
 import json
 import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
@@ -36,6 +38,7 @@ from .config import settings
 from .agents.router import AgentRouter
 from .voice.preview import router as voice_router
 from .security.crypto import mfa_manager
+from .api.finance import router as finance_router
 from pydantic import BaseModel
 
 logging.basicConfig(
@@ -44,6 +47,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+# Show FINANCE CACHE HIT / MISS lines (DEBUG level) in the server log
+logging.getLogger("jarvis.api.finance").setLevel(logging.DEBUG)
 
 
 # ── Application lifespan ───────────────────────────────────────────────────────
@@ -55,12 +60,16 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(crm_checker())
     asyncio.create_task(protocol_scheduler())
     asyncio.create_task(shadow_portfolio_evaluator())
+    from .agents.trading_signal_scanner import trading_signal_scanner, eod_digest_scheduler
+    asyncio.create_task(trading_signal_scanner(manager))
+    asyncio.create_task(eod_digest_scheduler(manager))
     logger.info(
         "✅ JARVIS v2.0 backend started. "
-        "Reminder, CRM, Protocol scheduler, and Shadow Portfolio evaluator running."
+        "Reminder, CRM, Protocol, Shadow Portfolio, and Trading Signal Scanner running."
     )
     yield
     # Pause all watchdogs on shutdown
+
     from .safety.kill_switch import kill_switch
     kill_switch.pause(reason="Server shutdown")
     logger.info("JARVIS backend shutting down.")
@@ -91,6 +100,11 @@ _ALLOWED_ORIGINS = [
     os.getenv("RAILWAY_PUBLIC_DOMAIN", ""),  # auto-set by Railway
     os.getenv("CORS_ORIGIN", "*"),           # override via env if needed
 ]
+# ── GZip compression (#10) ────────────────────────────────────────────────────
+# Compresses responses ≥ 1 000 B (skips small JSON payloads).  The 168 KB HUD
+# compresses to ~25–30 KB, cutting first-load transfer time significantly.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in _ALLOWED_ORIGINS if o] or ["*"],
@@ -142,6 +156,8 @@ app.mount(
 
 router = AgentRouter()
 app.include_router(voice_router)
+# Finance proxy: GET /api/finance/chart/{ticker}  and  GET /api/finance/batch (#2/#6)
+app.include_router(finance_router, prefix="/api/finance", tags=["Finance Proxy"])
 
 
 # ── Connection manager ────────────────────────────────────────────────────────
@@ -303,8 +319,13 @@ async def root(username: str = Depends(verify_credentials)):
     return RedirectResponse(url="/chat")
 
 @app.get("/chat", response_class=HTMLResponse)
-async def chat_ui(username: str = Depends(verify_credentials)):
-    """Serve the redesigned JARVIS HUD HTML."""
+async def chat_ui(request: Request, username: str = Depends(verify_credentials)):
+    """Serve the redesigned JARVIS HUD HTML with ETag + Cache-Control headers (#10).
+
+    ETag is derived from the file's mtime + size so the browser receives a
+    304 Not Modified on repeated loads when the file has not changed, avoiding
+    a 168 KB re-download on every page visit.
+    """
     _hud_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "jarvis_hud.html")
     )
@@ -313,9 +334,27 @@ async def chat_ui(username: str = Depends(verify_credentials)):
             "<h2>jarvis_hud.html not found.</h2><p>Please make sure it exists in the project root.</p>",
             status_code=404,
         )
+
+    stat = os.stat(_hud_path)
+    # ETag = sha256(mtime_ns + size) — cheap, stable, reflects any file change
+    raw_etag = f"{stat.st_mtime_ns}-{stat.st_size}"
+    etag = '"' + hashlib.sha256(raw_etag.encode()).hexdigest()[:32] + '"'
+
+    # Honour If-None-Match — return 304 if the client already has this version
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
     with open(_hud_path, encoding="utf-8") as f:
         html = f.read()
-    return HTMLResponse(html)
+
+    return HTMLResponse(
+        html,
+        headers={
+            # no-cache: always revalidate, but use 304 when ETag matches
+            "Cache-Control": "no-cache, must-revalidate",
+            "ETag": etag,
+        },
+    )
 
 
 @app.get("/api", response_class=HTMLResponse)
@@ -442,6 +481,45 @@ async def add_shadow_trade(
     """Manually add a trade recommendation to the shadow portfolio."""
     result = router.shadow_portfolio.manual_add(ticker, action, price, qty, signal_summary)
     return {"result": result}
+
+
+# ── Trading Signal Endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/trading/signals", tags=["Trading"])
+async def get_trading_signals(limit: int = 20):
+    """Return recent trading signals from SQLite store."""
+    from .agents.signal_store import signal_store
+    return {"signals": signal_store.get_recent_signals(limit=limit)}
+
+
+@app.post("/api/trading/signals/scan-now", tags=["Trading"])
+async def scan_trading_signals_now(username: str = Depends(verify_credentials)):
+    """Trigger an instant manual scan pass over the 7-stock watchlist."""
+    if not getattr(settings, "trading_signals_enabled", True):
+        return {
+            "status": "disabled",
+            "message": "Trading signal scanner is currently disabled.",
+            "result": {"scanned": 0, "status": "disabled"}
+        }
+    from .agents.trading_signal_scanner import scan_watchlist_once
+    result = await scan_watchlist_once(manager)
+    return {"status": "ok", "result": result}
+
+
+
+@app.post("/api/trading/signals/toggle", tags=["Trading"])
+async def toggle_trading_signals(enabled: bool, username: str = Depends(verify_credentials)):
+    """Kill-switch toggle for signal scanner without restarting server."""
+    settings.trading_signals_enabled = enabled
+    return {"trading_signals_enabled": settings.trading_signals_enabled}
+
+
+@app.get("/api/trading/signals/audit", tags=["Trading"])
+async def get_trading_signal_audit(days: int = 30):
+    """Signal quality self-audit report comparing real-time vs EOD digest win-rates."""
+    from .agents.trading_signal_scanner import get_signal_quality_audit
+    return get_signal_quality_audit(days=days)
+
 
 
 # ── Budget Endpoints ───────────────────────────────────────────────────────────
@@ -624,6 +702,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     await websocket.send_text(json.dumps({"type": "thinking"}))
 
                     full_reply = ""
+                    stream_error: Exception | None = None
                     try:
                         async for token in router.route_stream(text, file_content, file_name, voice_mode, agent_mode):
                             full_reply += token
@@ -631,23 +710,31 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 json.dumps({"type": "token", "text": token})
                             )
                     except Exception as exc:
-                        logger.error(f"Streaming error: {exc}")
-                        err_msg = (
-                            f"I encountered an error processing your request, Jay. "
-                            f"Details: {exc}"
+                        stream_error = exc
+                        logger.error(
+                            "WebSocket stream error after %d chars: %s",
+                            len(full_reply), exc
                         )
-                        if not full_reply:
-                            full_reply = err_msg
+                        # Inject a visible notice — don't silently send a
+                        # truncated reply as if it were complete
+                        err_notice = (
+                            f"\n\n⚠️ *Connection was interrupted mid-stream "
+                            f"({type(exc).__name__}). The reply above may be incomplete. "
+                            f"Retrying automatically via local model...*"
+                        )
                         await websocket.send_text(
-                            json.dumps({"type": "token", "text": err_msg})
+                            json.dumps({"type": "token", "text": err_notice})
                         )
-                        full_reply = err_msg
+                        full_reply += err_notice
 
                     # Final "done" frame with the complete assembled text
                     await websocket.send_text(
                         json.dumps({"type": "done", "text": full_reply})
                     )
-                    logger.info(f"→ Reply sent ({len(full_reply)} chars)")
+                    if stream_error:
+                        logger.warning("→ Done frame sent with stream error notice (%d chars)", len(full_reply))
+                    else:
+                        logger.info(f"→ Reply sent ({len(full_reply)} chars)")
 
             except json.JSONDecodeError:
                 await websocket.send_text(
@@ -657,8 +744,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-
 # ── Dev entry point ────────────────────────────────────────────────────────────
+# reload=True is single-worker only (uvicorn limitation) — fine for local dev.
+# Production multi-worker launch is via Procfile: --workers ${WORKER_COUNT:-2}
 
 if __name__ == "__main__":
     import uvicorn

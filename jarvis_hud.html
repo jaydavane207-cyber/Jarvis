@@ -979,6 +979,11 @@ body::after {
 .tech-val { font-family: var(--font-display); font-size: .76rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tv-bull { color: var(--bull); } .tv-bear { color: var(--bear); } .tv-neu { color: var(--sys-accent); }
 
+/* Trading Signals */
+.sig-feed { display: flex; flex-direction: column; gap: 5px; }
+.sig-card { padding: 6px; background: rgba(0,0,0,.3); border-radius: 2px; font-size: .62rem; transition: background .18s; }
+.sig-card:hover { background: rgba(240,168,50,.05); }
+
 /* Budget */
 .budget-list { display: flex; flex-direction: column; gap: 5px; padding-top: 6px; }
 .budget-item { display: flex; flex-direction: column; gap: 3px; }
@@ -1348,25 +1353,6 @@ body::after {
     </div>
   </div>
 
-  <!-- STUDY STATS -->
-  <div id="study-section" style="flex-shrink:0">
-    <div class="sec-hdr" onclick="toggleSec('study-body','study-toggle')" role="button" tabindex="0">
-      <div class="sec-hdr-left">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--ai-accent)"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        <span class="sec-hdr-title" style="color:var(--ai-accent)">STUDY STATS</span>
-      </div>
-      <span class="sec-toggle" id="study-toggle">&#9660;</span>
-    </div>
-    <div class="sec-body" id="study-body" style="max-height:140px">
-      <div class="study-grid">
-        <div class="sstat-card"><span class="sstat-val" id="stat-cards">0</span><span class="sstat-lbl">CARDS</span></div>
-        <div class="sstat-card"><span class="sstat-val" id="stat-quizzes">0</span><span class="sstat-lbl">QUIZZES</span></div>
-        <div class="sstat-card"><span class="sstat-val" id="stat-mindmaps">0</span><span class="sstat-lbl">MINDMAPS</span></div>
-        <div class="sstat-card"><span class="sstat-val" id="stat-streak">0</span><span class="sstat-lbl">DAY STREAK</span></div>
-      </div>
-    </div>
-  </div>
-
   <!-- REMINDERS -->
   <div id="rem-section" style="flex:1;min-height:0;display:flex;flex-direction:column">
     <div class="sec-hdr" onclick="toggleSec('rem-body','rem-toggle')" role="button" tabindex="0">
@@ -1393,6 +1379,25 @@ body::after {
         </div>
       </div>
       <div class="rlist" id="rlist"></div>
+    </div>
+  </div>
+
+  <!-- STUDY STATS -->
+  <div id="study-section" style="flex-shrink:0">
+    <div class="sec-hdr" onclick="toggleSec('study-body','study-toggle')" role="button" tabindex="0">
+      <div class="sec-hdr-left">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--ai-accent)"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <span class="sec-hdr-title" style="color:var(--ai-accent)">STUDY STATS</span>
+      </div>
+      <span class="sec-toggle" id="study-toggle">&#9660;</span>
+    </div>
+    <div class="sec-body" id="study-body" style="max-height:140px">
+      <div class="study-grid">
+        <div class="sstat-card"><span class="sstat-val" id="stat-cards">0</span><span class="sstat-lbl">CARDS</span></div>
+        <div class="sstat-card"><span class="sstat-val" id="stat-quizzes">0</span><span class="sstat-lbl">QUIZZES</span></div>
+        <div class="sstat-card"><span class="sstat-val" id="stat-mindmaps">0</span><span class="sstat-lbl">MINDMAPS</span></div>
+        <div class="sstat-card"><span class="sstat-val" id="stat-streak">0</span><span class="sstat-lbl">DAY STREAK</span></div>
+      </div>
     </div>
   </div>
   </div>
@@ -1456,6 +1461,13 @@ body::after {
         <div class="smrow"><span class="smkey">JARVIS SERVER</span><span class="smval" id="sm-srv">--</span></div>
         <div class="smrow"><span class="smkey">ANTHROPIC API</span><span class="smval" id="sm-ant" style="color:rgba(63,188,220,.4)">KEY IN .ENV</span></div>
         <div class="smrow"><span class="smkey">SUPABASE</span><span class="smval" id="sm-sup" style="color:rgba(63,188,220,.4)">KEY IN .ENV</span></div>
+        <div class="smrow" id="sm-vec-row" title="Semantic long-term memory health. Turns amber after 3 consecutive write failures.">
+          <span class="smkey">VECTOR MEM</span>
+          <span class="smval" id="sm-vec" style="display:flex;align-items:center;gap:4px">
+            <span id="sm-vec-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:rgba(63,188,220,.35);flex-shrink:0"></span>
+            <span id="sm-vec-lbl">--</span>
+          </span>
+        </div>
       </div>
     </div>
   </div>
@@ -1554,6 +1566,21 @@ body::after {
         </div>
         <div class="open-trades" id="open-trades"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- TRADING SIGNALS & EOD DIGEST -->
+  <div class="fin-section" id="signals-section">
+    <div class="fin-sec-hdr" onclick="toggleFinSec(this)" role="button" tabindex="0">
+      <span class="fin-sec-title">&#9889; TRADING SIGNALS &amp; EOD</span>
+      <span style="font-size:.56rem;color:rgba(240,168,50,.4)">&#9660;</span>
+    </div>
+    <div class="fin-sec-body" id="signals-body" style="max-height:360px">
+      <div style="display:flex;gap:4px;padding:5px 8px;border-bottom:1px solid rgba(240,168,50,.1);background:rgba(0,0,0,.25)">
+        <button class="chip chip-mkt active" id="sig-btn-live" onclick="Signals.switchTab('live')" style="font-size:.5rem;padding:2px 7px;cursor:pointer">REALTIME PUSHES</button>
+        <button class="chip chip-mkt" id="sig-btn-eod" onclick="Signals.switchTab('eod')" style="font-size:.5rem;padding:2px 7px;cursor:pointer;opacity:.6">EOD DIGEST</button>
+      </div>
+      <div class="sig-feed" id="sig-feed" style="overflow-y:auto;max-height:280px;padding:6px;display:flex;flex-direction:column;gap:5px"></div>
     </div>
   </div>
 
@@ -2422,9 +2449,140 @@ var SysMon={
   },
   pingBackend:function(){
     var start=Date.now();
-    fetch(CFG.backend+'/api/conversations',{signal:AbortSignal.timeout(3000)})
-      .then(function(r){var ms=Date.now()-start;var el=document.getElementById('sm-srv');if(el){el.textContent='ONLINE '+ms+'ms';el.className='smval on';}ConnStatus.set(true);})
-      .catch(function(){var el=document.getElementById('sm-srv');if(el){el.textContent='OFFLINE';el.className='smval off';}ConnStatus.set(false);});
+    fetch(CFG.backend+'/stats',{signal:AbortSignal.timeout(3000)})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        var ms=Date.now()-start;
+        var srv=document.getElementById('sm-srv');
+        if(srv){srv.textContent='ONLINE '+ms+'ms';srv.className='smval on';}
+        ConnStatus.set(true);
+        // ── Vector memory health dot ─────────────────────────────
+        var dot=document.getElementById('sm-vec-dot');
+        var lbl=document.getElementById('sm-vec-lbl');
+        if(!dot||!lbl)return;
+        var enabled=data.vector_enabled;
+        var healthy=data.vector_healthy;
+        var fails=data.vector_consecutive_failures||0;
+        if(!enabled){
+          dot.style.background='rgba(240,78,78,.55)';
+          dot.style.boxShadow='none';
+          lbl.textContent='OFFLINE';
+          lbl.style.color='var(--bear)';
+        } else if(!healthy){
+          dot.style.background='var(--warn)';
+          dot.style.boxShadow='0 0 5px var(--warn)';
+          lbl.textContent='DEGRADED ('+fails+'x)';
+          lbl.style.color='var(--warn)';
+          // Push a notification once when first degraded
+          if(!SysMon._vecWarnShown){
+            SysMon._vecWarnShown=true;
+            Notifs.add('⚠ VECTOR MEMORY: '+fails+' consecutive write failures — semantic recall may be incomplete','warn');
+          }
+        } else {
+          dot.style.background='var(--bull)';
+          dot.style.boxShadow='0 0 5px rgba(34,209,122,.7)';
+          lbl.textContent='HEALTHY';
+          lbl.style.color='var(--bull)';
+          SysMon._vecWarnShown=false; // reset so next degradation re-notifies
+        }
+      })
+      .catch(function(){
+        var el=document.getElementById('sm-srv');if(el){el.textContent='OFFLINE';el.className='smval off';}
+        ConnStatus.set(false);
+        var dot=document.getElementById('sm-vec-dot');
+        var lbl=document.getElementById('sm-vec-lbl');
+        if(dot){dot.style.background='rgba(63,188,220,.2)';dot.style.boxShadow='none';}
+        if(lbl){lbl.textContent='UNKNOWN';lbl.style.color='rgba(63,188,220,.45)';}
+      });
+  },
+  _vecWarnShown:false
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TRADING SIGNALS ENGINE
+══════════════════════════════════════════════════════════════════════ */
+var Signals={
+  activeTab:'live',
+  liveSignals:[
+    {id:1,ticker:'RELIANCE',action:'BUY',entry:2940,target:3100,stop:2880,conf:'HIGH',time:'10:15',note:'Breakout above 2930 resistance'},
+    {id:2,ticker:'TCS',action:'HOLD',entry:3820,target:3950,stop:3760,conf:'MED',time:'09:45',note:'Consolidating near 50 EMA support'},
+    {id:3,ticker:'INFY',action:'BUY',entry:1665,target:1740,stop:1620,conf:'HIGH',time:'09:30',note:'Bullish reversal pattern'}
+  ],
+  eodDigest:[
+    {ticker:'NIFTY50',stance:'BULLISH',summary:'Closed +0.65% above 24,500. FII net buyers. Key resistance at 24,800.',date:'TODAY'},
+    {ticker:'TATAMOTORS',stance:'NEUTRAL',summary:'Auto sales data flat. Rangebound 980-1020.',date:'TODAY'},
+    {ticker:'ICICIBANK',stance:'BULLISH',summary:'Strong credit growth. Target 1250 retained.',date:'TODAY'}
+  ],
+  init:function(){
+    this.updateWatchlistBadges();
+    this.render();
+  },
+  switchTab:function(tab){
+    SFX.click();
+    this.activeTab=tab;
+    var bLive=document.getElementById('sig-btn-live');
+    var bEod=document.getElementById('sig-btn-eod');
+    if(bLive&&bEod){
+      if(tab==='live'){
+        bLive.classList.add('active');bLive.style.opacity='1';
+        bEod.classList.remove('active');bEod.style.opacity='.6';
+      }else{
+        bEod.classList.add('active');bEod.style.opacity='1';
+        bLive.classList.remove('active');bLive.style.opacity='.6';
+      }
+    }
+    this.render();
+  },
+  addSignal:function(sig){
+    this.liveSignals.unshift(sig);
+    if(this.liveSignals.length>20)this.liveSignals.pop();
+    this.updateWatchlistBadges();
+    this.render();
+    if(typeof Finance!=='undefined'&&Finance.renderWatchlist)Finance.renderWatchlist();
+    if(typeof Notifs!=='undefined'&&Notifs.add){
+      Notifs.add('info','TRADING SIGNAL: '+sig.ticker,sig.action+' @ ₹'+sig.entry+' (TP: ₹'+sig.target+')',null);
+    }
+  },
+  updateWatchlistBadges:function(){
+    var self=this;
+    if(typeof Finance==='undefined'||!Finance.stocks)return;
+    Finance.stocks.forEach(function(s){
+      var match=self.liveSignals.find(function(sig){return sig.ticker===s.t;});
+      if(match)s.latestSignal=match;
+    });
+  },
+  render:function(){
+    var feed=document.getElementById('sig-feed');
+    if(!feed)return;
+    if(this.activeTab==='live'){
+      if(!this.liveSignals.length){feed.innerHTML='<div class="empty-msg">NO RECENT REALTIME SIGNALS</div>';return;}
+      feed.innerHTML=this.liveSignals.map(function(s){
+        var col=s.action==='BUY'?'var(--bull)':s.action==='SELL'?'var(--bear)':'var(--sys-accent)';
+        var bg=s.action==='BUY'?'rgba(34,209,122,.08)':s.action==='SELL'?'rgba(240,78,78,.08)':'rgba(63,188,220,.08)';
+        return'<div class="sig-card" style="border-left:3px solid '+col+';background:'+bg+'">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+          +'<span style="font-family:var(--font-display);font-weight:700;color:rgba(210,225,235,.9)">'+s.ticker+'</span>'
+          +'<span style="font-family:var(--font-display);font-weight:700;color:'+col+'">'+s.action+'</span>'
+          +'</div>'
+          +'<div style="color:rgba(210,225,235,.6);display:flex;gap:8px;font-family:var(--font-data);font-size:.58rem">'
+          +'<span>Entry: ₹'+s.entry+'</span><span>TP: ₹'+s.target+'</span><span>SL: ₹'+s.stop+'</span>'
+          +'</div>'
+          +(s.note?'<div style="font-size:.56rem;color:rgba(210,225,235,.4);margin-top:2px">'+esc(s.note)+'</div>':'')
+          +'</div>';
+      }).join('');
+    }else{
+      if(!this.eodDigest.length){feed.innerHTML='<div class="empty-msg">NO EOD DIGEST AVAILABLE</div>';return;}
+      feed.innerHTML=this.eodDigest.map(function(d){
+        var col=d.stance==='BULLISH'?'var(--bull)':d.stance==='BEARISH'?'var(--bear)':'var(--sys-accent)';
+        return'<div class="sig-card" style="border-left:3px solid '+col+'">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+          +'<span style="font-family:var(--font-display);font-weight:700;color:rgba(210,225,235,.9)">'+d.ticker+'</span>'
+          +'<span style="font-size:.5rem;font-weight:700;padding:1px 5px;border-radius:2px;color:'+col+';background:rgba(0,0,0,.4)">'+d.stance+'</span>'
+          +'</div>'
+          +'<div style="font-size:.58rem;color:rgba(210,225,235,.7);font-family:var(--font-body)">'+esc(d.summary)+'</div>'
+          +'</div>';
+      }).join('');
+    }
   }
 };
 
@@ -2485,8 +2643,11 @@ var Finance={sel:0,
     {t:'TCS',full:'Tata Consultancy Svcs',price:3820.15,chg:-0.41,signal:'Slight pullback - hold',tag:'hold',conf:'med',rsi:44,sma20:3850,ema50:3800,atr:38,vol:'MED',seed:17},
     {t:'INFY',full:'Infosys Limited',price:1672.80,chg:0.83,signal:'RSI oversold bounce',tag:'buy',conf:'high',rsi:32,sma20:1650,ema50:1620,atr:22,vol:'HIGH',seed:93},
     {t:'HDFCBANK',full:'HDFC Bank Ltd',price:1890.45,chg:0.31,signal:'Support holding',tag:'hold',conf:'low',rsi:51,sma20:1880,ema50:1860,atr:18,vol:'MED',seed:61},
+    {t:'TATAMOTORS',full:'Tata Motors Ltd',price:985.60,chg:1.15,signal:'Breakout above resistance',tag:'buy',conf:'high',rsi:62,sma20:965,ema50:940,atr:16,vol:'HIGH',seed:55},
+    {t:'ICICIBANK',full:'ICICI Bank Ltd',price:1150.25,chg:0.45,signal:'MA50 support holding',tag:'hold',conf:'med',rsi:54,sma20:1140,ema50:1120,atr:14,vol:'MED',seed:78},
     {t:'WIPRO',full:'Wipro Limited',price:498.20,chg:-1.13,signal:'Bearish divergence',tag:'sell',conf:'med',rsi:67,sma20:505,ema50:510,atr:8,vol:'LOW',seed:28}
   ],
+
   portfolio:{holdings:[{t:'RELIANCE',qty:10,avgBuy:2800,current:2945.30},{t:'TCS',qty:5,avgBuy:3900,current:3820.15},{t:'INFY',qty:20,avgBuy:1550,current:1672.80}],winRate:62,open:3,perf:{d30:4.2,d60:7.8,d90:11.3}},
   budgets:[{cat:'TUITION/COURSE',spent:12000,limit:15000},{cat:'BOOKS/MATERIALS',spent:2200,limit:3000},{cat:'UTILITIES',spent:2100,limit:2000},{cat:'ENTERTAINMENT',spent:800,limit:1500},{cat:'INVESTMENTS',spent:5000,limit:5000}],
   alerts:[{type:'price-alert',ticker:'WIPRO',body:'Crossed below ₹500 support — Bearish signal',time:'19:15'},{type:'news-alert',ticker:'RELIANCE',body:'Q1 beat estimates — EPS up 8.2%',time:'18:45'},{type:'price-alert',ticker:'TCS',body:'Near resistance at ₹3900 — Watch for breakout',time:'17:30'}],
@@ -2501,6 +2662,7 @@ var Finance={sel:0,
   },
 
   init:function(){
+    Signals.init();
     this.renderPortfolio();this.renderWatchlist();this.drawChart();this.renderBudget();this.renderAlerts();this.renderIndicators();this.fetchLive();this.startTicker();
     var self=this;
     setInterval(function(){
@@ -2529,16 +2691,36 @@ var Finance={sel:0,
   },
 
   fetchLive:function(){
+    /* ── Backend finance proxy (#2 / #6) ──────────────────────────────────
+       Previously: N separate fetch() calls directly to Yahoo Finance
+         -> CORS errors in browser, N redundant round-trips, no caching.
+       Now: one fetch() to our /api/finance/batch endpoint
+         -> server fetches all tickers concurrently (asyncio.gather),
+            caches results 5 min per ticker, returns a single JSON payload.
+    ─────────────────────────────────────────────────────────────────────── */
     var self=this;
-    this.stocks.forEach(function(s){
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+s.t+'.NS?interval=1d&range=1mo',{mode:'cors'})
-        .then(function(r){return r.json();})
-        .then(function(json){
-          var closes=json.chart.result[0].indicators.quote[0].close.filter(Boolean);
-          if(closes.length>2){s._live=closes;s.price=parseFloat(closes[closes.length-1].toFixed(2));s.chg=parseFloat(((closes[closes.length-1]-closes[closes.length-2])/closes[closes.length-2]*100).toFixed(2));}
-        }).catch(function(){});
-    });
+    var tickerParams=this.stocks.map(function(s){return s.t+'.NS';}).join(',');
+    fetch(CFG.backend+'/api/finance/batch?tickers='+encodeURIComponent(tickerParams),
+          {signal:AbortSignal.timeout(12000)})
+      .then(function(r){return r.json();})
+      .then(function(batch){
+        self.stocks.forEach(function(s){
+          var data=batch[s.t+'.NS'];
+          if(!data)return; /* this ticker failed — retain seed data */
+          try{
+            var result=data.chart.result[0];
+            var closes=result.indicators.quote[0].close.filter(Boolean);
+            if(closes.length>2){
+              s._live=closes;
+              s.price=parseFloat(closes[closes.length-1].toFixed(2));
+              s.chg=parseFloat(((closes[closes.length-1]-closes[closes.length-2])/closes[closes.length-2]*100).toFixed(2));
+            }
+          }catch(e){}
+        });
+        self.renderWatchlist();self.drawChart();self.updateTickerTape();
+      }).catch(function(){/* server offline or timeout — retain seed data */});
   },
+
 
   renderPortfolio:function(){
     var p=this.portfolio;
@@ -2556,6 +2738,7 @@ var Finance={sel:0,
 
   renderWatchlist:function(){
     var self=this;
+    if(typeof Signals!=='undefined')Signals.updateWatchlistBadges();
     document.getElementById('wl-list').innerHTML=this.stocks.map(function(s,i){
       var pos=s.chg>=0,col=pos?'var(--bull)':'var(--bear)';
       var act=i===self.sel?' active':'';
@@ -2566,11 +2749,13 @@ var Finance={sel:0,
       var mn=Math.min.apply(null,pts),mx=Math.max.apply(null,pts),rng=mx-mn||1;
       var W=100,H=18;
       var coords=pts.map(function(p,j){return(j/(pts.length-1)*W).toFixed(1)+','+(H-((p-mn)/rng*H)).toFixed(1);}).join(' ');
+      var sigBadge=s.latestSignal?'<div style="font-size:.52rem;margin-top:3px;padding:2px 4px;background:rgba(0,0,0,.35);border-radius:2px;display:flex;justify-content:space-between;align-items:center;color:rgba(210,225,235,.75)"><span style="font-weight:700;color:'+(s.latestSignal.action==='BUY'?'var(--bull)':s.latestSignal.action==='SELL'?'var(--bear)':'var(--sys-accent)')+'">'+s.latestSignal.action+' SIGNAL</span><span>TP: ₹'+s.latestSignal.target+'</span></div>':'';
       return'<div class="wl-card'+act+' signal-new" id="wl-card-'+i+'" data-i='+i+'>'
         +'<div class="wl-r1"><span class="wl-ticker">'+s.t+'</span><span class="wl-price">₹'+s.price.toFixed(2)+'</span></div>'
         +'<div class="wl-r2"><span class="wl-name">'+s.full+'</span><span class="wl-chg" style="color:'+col+'">'+(pos?'+':'')+s.chg.toFixed(2)+'%</span></div>'
         +'<div class="wl-r3"><span class="wl-indicators">RSI:'+s.rsi+' ATR:'+s.atr+' VOL:'+s.vol+'</span>'
         +'<span class="wl-signal-tag '+tagCls+' '+confCls+'">'+s.tag.toUpperCase()+pips+'</span></div>'
+        +sigBadge
         +'<svg width="100%" height="20" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" style="margin-top:3px" aria-hidden="true"><polyline points="'+coords+'" fill="none" stroke="'+col+'" stroke-width="1.4"/></svg>'
         +'</div>';
     }).join('');

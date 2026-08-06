@@ -23,6 +23,8 @@ env/
 *.sqlite3
 personal.db
 test.db
+.jarvis/
+
 
 # ── Logs & Cache ──────────────────────────────────────────────────────────────
 *.log

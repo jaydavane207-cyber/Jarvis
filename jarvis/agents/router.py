@@ -38,6 +38,7 @@ from ..models.hybrid_router import HybridLLMRouter
 from ..memory.sqlite_store import SQLiteStore
 from ..memory.vector_store import VectorStore
 from ..memory.supabase_store import SupabaseChatStore, SupabaseVectorStore
+from ..memory.async_writer import AsyncMemoryWriter
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,8 @@ class AgentRouter:
         else:
             self.memory              = SQLiteStore()
             self.vector_store        = VectorStore()
+        # Safe async writer — isolates SQLite/vector failures from each other
+        self._writer = AsyncMemoryWriter(self.memory, self.vector_store)
         # Expose stores for background checkers
         self.reminder_store = self.reminder_agent.store
         self.contact_store  = self.communication_agent.contact_store
@@ -280,7 +283,9 @@ class AgentRouter:
         Synchronous routing. Returns complete reply string.
         Used for non-streaming clients (tests, simple requests).
         """
+        import asyncio
         t0 = time.perf_counter()
+        # Persist user turn synchronously so history is ready before dispatch
         self.memory.add_message("user", message)
 
         augmented = self._augment_message(message, file_context, file_name)
@@ -292,9 +297,18 @@ class AgentRouter:
 
         latency_ms = (time.perf_counter() - t0) * 1000
         self._log(agent_name, message, latency_ms)
-        self.memory.add_message("jarvis", reply)
-        self.vector_store.add("user", message)
-        self.vector_store.add("assistant", reply)
+        # Async-safe persist: fire and forget from the sync path
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._writer.persist_reply(reply, message))
+            else:
+                loop.run_until_complete(self._writer.persist_reply(reply, message))
+        except RuntimeError:
+            # Fallback: no event loop available — write synchronously
+            self.memory.add_message("jarvis", reply)
+            self.vector_store.add("user", message)
+            self.vector_store.add("assistant", reply)
         return reply
 
     async def route_stream(
@@ -310,6 +324,7 @@ class AgentRouter:
         Handles memory persistence after the stream is complete.
         """
         t0 = time.perf_counter()
+        # Persist user turn immediately (synchronous) so history is available
         self.memory.add_message("user", message)
 
         augmented = self._augment_message(message, file_context, file_name)
@@ -489,7 +504,8 @@ class AgentRouter:
                 full_reply += chunk
                 yield chunk
 
-        self._persist_reply(full_reply, message, agent_name, t0)
+        # Persist reply (SQLite + vector store) concurrently and safely
+        await self._persist_reply_async(full_reply, message, agent_name, t0)
 
         # Log all streaming agents to tool_logs for the dashboard
         if agent_name in (
@@ -595,14 +611,39 @@ class AgentRouter:
             return ""
         return f"\n\n{semantic_context}"
 
+    async def _persist_reply_async(
+        self, reply: str, original_message: str, agent_name: str, t0: float
+    ) -> None:
+        """Persist reply to SQLite and vector store concurrently via AsyncMemoryWriter."""
+        latency_ms = (time.perf_counter() - t0) * 1000
+        self._log(agent_name, original_message, latency_ms)
+        await self._writer.persist_reply(reply, original_message)
+
     def _persist_reply(
         self, reply: str, original_message: str, agent_name: str, t0: float
     ) -> None:
+        """Synchronous persist path — used for early-return agents in route_stream.
+        Schedules the async writer as a fire-and-forget task.
+        """
+        import asyncio
         latency_ms = (time.perf_counter() - t0) * 1000
         self._log(agent_name, original_message, latency_ms)
-        self.memory.add_message("jarvis", reply)
-        self.vector_store.add("user", original_message)
-        self.vector_store.add("assistant", reply)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(
+                    self._writer.persist_reply(reply, original_message),
+                    name="persist_reply"
+                )
+            else:
+                loop.run_until_complete(
+                    self._writer.persist_reply(reply, original_message)
+                )
+        except RuntimeError:
+            # No event loop — fall back to direct synchronous writes
+            self.memory.add_message("jarvis", reply)
+            self.vector_store.add("user", original_message)
+            self.vector_store.add("assistant", reply)
 
     # ── Metrics ───────────────────────────────────────────────────────────────
 
@@ -636,13 +677,15 @@ class AgentRouter:
         pending_reminders = self.reminder_store.get_all_upcoming()
         lats = self.latency_log
         return {
-            "routing_log":       self.routing_log[-20:],
-            "tool_logs":         self.tool_logs,
-            "latency_log":       lats[-50:],
-            "avg_latency_ms":    round(sum(lats) / len(lats), 1) if lats else 0,
-            "pending_reminders": len(pending_reminders),
-            "memory_messages":   len(self.memory.get_recent_messages(limit=9999)),
-            "vector_enabled":    self.vector_store.enabled,
-            "cloud_enabled":     self.llm._cloud.enabled,
-            "local_model":       self.llm.model,
+            "routing_log":               self.routing_log[-20:],
+            "tool_logs":                 self.tool_logs,
+            "latency_log":               lats[-50:],
+            "avg_latency_ms":            round(sum(lats) / len(lats), 1) if lats else 0,
+            "pending_reminders":         len(pending_reminders),
+            "memory_messages":           len(self.memory.get_recent_messages(limit=9999)),
+            "vector_enabled":            self.vector_store.enabled,
+            "vector_healthy":            self._writer.vector_healthy,
+            "vector_consecutive_failures": self._writer.vector_consecutive_failures,
+            "cloud_enabled":             self.llm._cloud.enabled,
+            "local_model":               self.llm.model,
         }

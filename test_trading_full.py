@@ -24,16 +24,16 @@ from datetime import datetime, timedelta
 
 def test_profile_constants():
     assert TOTAL_CAPITAL == 10000.0
-    assert MAX_RISK_PER_TRADE == 75.0
+    assert MAX_RISK_PER_TRADE == 100.0
     assert MAX_CONCURRENT_POSITIONS == 2
 
 def test_risk_engine_within_cap():
     res = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=950.0)
     assert res["rejected"] is False
-    assert res["risk_inr"] <= 75.0
+    assert res["risk_inr"] <= 100.0
 
 def test_risk_engine_exceeds_cap():
-    res = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=900.0)
+    res = RiskEngine.compute_qty_and_risk(cmp=1000.0, stop=890.0)
     assert res["rejected"] is True
 
 def test_atr_stop_calculation():
@@ -72,7 +72,7 @@ def test_circuit_breaker_triggers():
 def test_profile_summary_format():
     s = get_profile_summary()
     assert "₹10,000" in s
-    assert "₹75" in s
+    assert "₹100" in s
     assert "Swing" in s
 
 
@@ -250,3 +250,27 @@ def test_trading_api_health(tmp_path):
     data = response.json()
     assert data["status"] == "ok"
     assert data["version"] == "2.0.0"
+
+
+def test_trading_signals_toggle_and_scan():
+    from fastapi.testclient import TestClient
+    from jarvis.main import app
+    client = TestClient(app)
+    auth = ("jarvis", "admin123")
+
+    # 1. Disable signals
+    res_off = client.post("/api/trading/signals/toggle?enabled=false", auth=auth)
+    assert res_off.status_code == 200
+    assert res_off.json()["trading_signals_enabled"] is False
+
+    # 2. Scan while disabled -> returns disabled message
+    res_scan_off = client.post("/api/trading/signals/scan-now", auth=auth)
+    assert res_scan_off.status_code == 200
+    assert res_scan_off.json()["status"] == "disabled"
+    assert "disabled" in res_scan_off.json()["message"].lower()
+
+    # 3. Enable signals
+    res_on = client.post("/api/trading/signals/toggle?enabled=true", auth=auth)
+    assert res_on.status_code == 200
+    assert res_on.json()["trading_signals_enabled"] is True
+

@@ -16,9 +16,11 @@ class SQLiteStore:
     def _ensure_db(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         with closing(sqlite3.connect(self.db_path)) as conn:
+            # WAL: concurrent readers + one writer; busy_timeout: retry up to
+            # 5 s before raising SQLITE_BUSY (relevant under multiple workers).
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             with conn:
-                # Enable WAL mode for concurrent access
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,9 +30,16 @@ class SQLiteStore:
                     )
                 """)
 
-    def add_message(self, role: str, content: str):
+    def _get_conn(self) -> sqlite3.Connection:
+        """Open a connection with WAL + busy_timeout already set."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
+
+    def add_message(self, role: str, content: str) -> None:
         try:
-            with closing(sqlite3.connect(self.db_path)) as conn:
+            with closing(self._get_conn()) as conn:
                 with conn:
                     conn.execute(
                         "INSERT INTO messages (role, content) VALUES (?, ?)",
@@ -39,7 +48,7 @@ class SQLiteStore:
         except sqlite3.OperationalError as e:
             if "no such table: messages" in str(e):
                 self._ensure_db()
-                with closing(sqlite3.connect(self.db_path)) as conn:
+                with closing(self._get_conn()) as conn:
                     with conn:
                         conn.execute(
                             "INSERT INTO messages (role, content) VALUES (?, ?)",
@@ -50,7 +59,7 @@ class SQLiteStore:
 
     def get_recent_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
         try:
-            with closing(sqlite3.connect(self.db_path)) as conn:
+            with closing(self._get_conn()) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(
                     "SELECT role, content, timestamp FROM messages ORDER BY id DESC LIMIT ?",
@@ -84,10 +93,10 @@ class SQLiteStore:
             formatted.append({"role": role, "content": msg["content"]})
         return formatted
 
-    def clear_history(self):
+    def clear_history(self) -> None:
         """Wipe all messages (useful for starting a new session)."""
         try:
-            with closing(sqlite3.connect(self.db_path)) as conn:
+            with closing(self._get_conn()) as conn:
                 with conn:
                     conn.execute("DELETE FROM messages")
         except sqlite3.OperationalError as e:
