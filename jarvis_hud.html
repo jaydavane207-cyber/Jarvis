@@ -625,9 +625,15 @@ body::after {
   border-bottom: none; z-index: 100;
   display: flex; flex-direction: column;
   max-height: 0; overflow: hidden;
+  pointer-events: none;
   transition: max-height .3s cubic-bezier(.4,0,.2,1);
 }
-.more-drawer.open { max-height: 480px; }
+.more-drawer.open { max-height: 480px; pointer-events: auto; }
+.more-drawer-backdrop {
+  position: absolute; inset: 0; z-index: 99;
+  background: rgba(0,0,0,.35); display: none;
+}
+.more-drawer-backdrop.show { display: block; }
 .drawer-tabs { display: flex; border-bottom: 1px solid rgba(63,188,220,.12); flex-shrink: 0; }
 .dtab {
   flex: 1; padding: 6px 3px;
@@ -1334,6 +1340,30 @@ body::after {
     </div>
   </div>
 
+  <!-- MORNING PROTOCOL BRIEFING CARD -->
+  <div id="morning-briefing-card" class="morning-card" style="display:none;margin:8px 12px;padding:12px;background:rgba(12,24,38,.9);border:1px solid var(--sys-accent);border-radius:6px;box-shadow:0 0 15px rgba(63,188,220,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;border-bottom:1px solid rgba(63,188,220,.2);padding-bottom:6px">
+      <div style="font-family:var(--font-display);font-size:.65rem;letter-spacing:2px;color:var(--sys-accent);display:flex;align-items:center;gap:6px">
+        <span>🌅</span><span>MORNING PROTOCOL BRIEFING</span>
+      </div>
+      <span id="mb-date-badge" style="font-family:var(--font-mono);font-size:.5rem;color:rgba(210,225,235,.5)"></span>
+    </div>
+    <div id="mb-narrative" style="font-family:var(--font-body);font-size:.68rem;color:#d2e1eb;line-height:1.45;margin-bottom:8px;font-style:italic"></div>
+    <div id="mb-signals-wrap" style="display:none;margin-bottom:6px;background:rgba(0,0,0,.35);padding:6px;border-radius:4px;border-left:2px solid var(--bull)">
+      <div style="font-family:var(--font-display);font-size:.52rem;color:var(--bull);margin-bottom:4px;letter-spacing:1px">📈 OVERNIGHT TRADING SIGNALS</div>
+      <div id="mb-signals-list" style="font-family:var(--font-mono);font-size:.58rem;color:#fff"></div>
+    </div>
+    <div id="mb-reminders-wrap" style="display:none;margin-bottom:8px;background:rgba(0,0,0,.35);padding:6px;border-radius:4px;border-left:2px solid var(--warn)">
+      <div style="font-family:var(--font-display);font-size:.52rem;color:var(--warn);margin-bottom:4px;letter-spacing:1px">⏰ TODAY'S REMINDERS</div>
+      <div id="mb-reminders-list" style="font-family:var(--font-mono);font-size:.58rem;color:#fff"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-top:6px">
+      <button id="mb-listen-btn" class="mbtn" style="display:none;padding:4px 8px;font-size:.54rem;border-color:var(--sys-accent);color:var(--sys-accent)" onclick="MorningProtocol.playVoice()">🔊 LISTEN BRIEFING</button>
+      <button class="mbtn" style="padding:4px 8px;font-size:.54rem;border-color:var(--warn);color:var(--warn)" onclick="MorningProtocol.snooze(30)">SNOOZE 30M</button>
+      <button class="mbtn" style="padding:4px 8px;font-size:.54rem;border-color:rgba(255,255,255,.2)" onclick="MorningProtocol.dismiss()">DISMISS</button>
+    </div>
+  </div>
+
   <!-- NOTIFICATIONS -->
   <div id="notif-section" style="flex-shrink:0">
     <div class="sec-hdr" onclick="toggleSec('notif-body','notif-toggle')" role="button" tabindex="0" aria-expanded="true">
@@ -1871,13 +1901,26 @@ function openDrawer(pane){
   SFX.click();
   var d=document.getElementById('more-drawer');
   if(_drawerActive===pane&&d.classList.contains('open')){closeDrawer();return;}
-  _drawerActive=pane;d.classList.add('open');switchDrawer(pane);
+  _drawerActive=pane;
+  if(d) d.classList.add('open');
+  switchDrawer(pane);
 }
 function closeDrawer(){
-  document.getElementById('more-drawer').classList.remove('open');
+  var d=document.getElementById('more-drawer');
+  if(d) d.classList.remove('open');
   _drawerActive=null;
   document.querySelectorAll('.rail-btn').forEach(function(b){b.classList.remove('active-rail');});
 }
+
+document.addEventListener('click', function(e){
+  var d = document.getElementById('more-drawer');
+  if (d && d.classList.contains('open')) {
+    var rail = document.querySelector('.more-rail');
+    if (!d.contains(e.target) && (!rail || !rail.contains(e.target))) {
+      closeDrawer();
+    }
+  }
+}, true);
 function switchDrawer(pane){
   ['dsess','dnotes','dcmds','dsys'].forEach(function(id){
     document.getElementById(id).classList.toggle('active',id===pane);
@@ -2042,27 +2085,34 @@ var Sessions={
     if(el){ el.textContent='FETCHING...'; el.style.color='rgba(63,188,220,.7)'; }
     
     var tryFetch = function(baseUrl) {
-      return fetch(baseUrl + '/api/conversations', {signal: AbortSignal.timeout(4000)})
+      return fetch(baseUrl + '/api/conversations', {signal: AbortSignal.timeout(4000), credentials: 'same-origin'})
         .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     };
 
-    tryFetch(CFG.backend)
+    tryFetch('')
       .then(function(data){
-        Sessions.apiBase = CFG.backend;
+        Sessions.apiBase = '';
         Sessions.onSuccess(data);
       })
       .catch(function(){
-        var alt = 'http://127.0.0.1:8080';
-        tryFetch(alt)
+        tryFetch(CFG.backend)
           .then(function(data){
-            Sessions.apiBase = alt;
+            Sessions.apiBase = CFG.backend;
             Sessions.onSuccess(data);
           })
           .catch(function(){
-            if(el){
-              el.textContent='OFFLINE — RUN VIEWER_SERVER.PY';
-              el.style.color='rgba(240,168,50,.7)';
-            }
+            var alt = 'http://127.0.0.1:8080';
+            tryFetch(alt)
+              .then(function(data){
+                Sessions.apiBase = alt;
+                Sessions.onSuccess(data);
+              })
+              .catch(function(){
+                if(el){
+                  el.textContent='OFFLINE — RUN VIEWER_SERVER.PY';
+                  el.style.color='rgba(240,168,50,.7)';
+                }
+              });
           });
       });
   },
@@ -2103,7 +2153,7 @@ var Sessions={
     document.getElementById('sess-modal-title').textContent = (title || 'SESSION TRANSCRIPT').toUpperCase();
     document.getElementById('sess-modal-sub').textContent = 'ID: ' + id;
     
-    var fullViewerUrl = (Sessions.apiBase || 'http://127.0.0.1:8080') + '/?id=' + encodeURIComponent(id);
+    var fullViewerUrl = (Sessions.apiBase ? Sessions.apiBase + '/viewer?id=' : '/viewer?id=') + encodeURIComponent(id);
     document.getElementById('sess-modal-open-full').href = fullViewerUrl;
     
     var body = document.getElementById('sess-modal-body');
@@ -2111,7 +2161,7 @@ var Sessions={
     
     document.getElementById('sess-modal').classList.add('open');
 
-    fetch(Sessions.apiBase + '/api/conversations/' + id, {signal: AbortSignal.timeout(6000)})
+    fetch((Sessions.apiBase || '') + '/api/conversations/' + id, {signal: AbortSignal.timeout(6000), credentials: 'same-origin'})
       .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(function(text){
         var lines = text.split('\n').filter(function(l){ return l.trim() !== ''; });
@@ -3026,6 +3076,10 @@ var WS={socket:null,
             setTimeout(function(){Orb.set('standby');},2000);
           }else if(msg.type==='notification'){
             Notifs.add(msg.severity||'info',msg.title||'System',msg.body||'',msg.context_id||null);
+          }else if(msg.type==='morning_briefing'){
+            if(typeof MorningProtocol!=='undefined'&&MorningProtocol.render){
+              MorningProtocol.render(msg.data);
+            }
           }else if(msg.type==='trading_signal'||msg.type==='signal'){
             if(typeof Signals!=='undefined'&&Signals.addSignal){
               Signals.addSignal({
@@ -3053,6 +3107,115 @@ var WS={socket:null,
         }catch(err){}
       };
     }catch(ex){ConnStatus.set(false);}
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MORNING PROTOCOL CONTROLLER
+══════════════════════════════════════════════════════════════════════ */
+var MorningProtocol = {
+  activeData: null,
+  audioObj: null,
+  snoozeTimer: null,
+
+  render: function(data) {
+    if (!data) return;
+    this.activeData = data;
+    var card = document.getElementById('morning-briefing-card');
+    if (!card) return;
+
+    var dateBadge = document.getElementById('mb-date-badge');
+    if (dateBadge) dateBadge.textContent = data.date || '';
+
+    var narrativeEl = document.getElementById('mb-narrative');
+    if (narrativeEl) narrativeEl.textContent = data.narrative || '';
+
+    // Render trading signals if available and weekday
+    var sigWrap = document.getElementById('mb-signals-wrap');
+    var sigList = document.getElementById('mb-signals-list');
+    if (sigWrap && sigList) {
+      if (data.signals && data.signals.length > 0 && !data.is_weekend) {
+        sigList.innerHTML = data.signals.map(function(s){
+          var tkn = s.ticker || 'SIGNAL';
+          var act = s.signal_type || s.action || 'BUY';
+          var px = s.entry_price || s.entry || '--';
+          return '• ' + tkn + ' (' + act + ') @ ₹' + px;
+        }).join('<br>');
+        sigWrap.style.display = 'block';
+      } else {
+        sigWrap.style.display = 'none';
+      }
+    }
+
+    // Render reminders if available
+    var remWrap = document.getElementById('mb-reminders-wrap');
+    var remList = document.getElementById('mb-reminders-list');
+    if (remWrap && remList) {
+      if (data.reminders && data.reminders.length > 0) {
+        remList.innerHTML = data.reminders.map(function(r){ return '• ' + r; }).join('<br>');
+        remWrap.style.display = 'block';
+      } else {
+        remWrap.style.display = 'none';
+      }
+    }
+
+    card.style.display = 'block';
+    this.playVoice();
+  },
+
+  playVoice: function() {
+    if (!this.activeData || !this.activeData.narrative) return;
+    var self = this;
+    var listenBtn = document.getElementById('mb-listen-btn');
+    if (listenBtn) listenBtn.style.display = 'none';
+
+    fetch('/api/voice/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: self.activeData.narrative, mode: 'calm_male' })
+    })
+    .then(function(res){
+      if (res.ok) return res.blob();
+      throw new Error('TTS fetch failed');
+    })
+    .then(function(blob){
+      var url = URL.createObjectURL(blob);
+      if (self.audioObj) { self.audioObj.pause(); }
+      self.audioObj = new Audio(url);
+      var playPromise = self.audioObj.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(function(err){
+          console.warn('Morning Protocol TTS autoplay blocked by browser policy:', err);
+          if (listenBtn) listenBtn.style.display = 'inline-block';
+        });
+      }
+    })
+    .catch(function(err){
+      console.warn('Morning Protocol TTS preview error:', err);
+      if (listenBtn) listenBtn.style.display = 'inline-block';
+    });
+  },
+
+  dismiss: function() {
+    var card = document.getElementById('morning-briefing-card');
+    if (card) card.style.display = 'none';
+    if (this.audioObj) { this.audioObj.pause(); }
+    if (this.snoozeTimer) { clearTimeout(this.snoozeTimer); }
+  },
+
+  snooze: function(minutes) {
+    var card = document.getElementById('morning-briefing-card');
+    if (card) card.style.display = 'none';
+    if (this.audioObj) { this.audioObj.pause(); }
+    if (this.snoozeTimer) { clearTimeout(this.snoozeTimer); }
+
+    var ms = (minutes || 30) * 60 * 1000;
+    var self = this;
+    this.snoozeTimer = setTimeout(function(){
+      if (card && self.activeData) {
+        card.style.display = 'block';
+      }
+    }, ms);
   }
 };
 

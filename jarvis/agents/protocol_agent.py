@@ -2,27 +2,28 @@
 ProtocolAgent — proactive Morning and Evening briefings for JARVIS.
 
 Morning Protocol (fires at configured time, default 07:30 IST):
-  • Today's calendar summary
-  • Overnight NSE/BSE market movements (top movers, index levels)
-  • Market sentiment headline via ResearchAgent
-  • Any due reminders for today
+  • Persistent last-sent tracking in personal.db
+  • Weekday vs Weekend awareness (omits stock digest on Sat/Sun)
+  • Overnight trading signals via signal_store
+  • Today's pending reminders via reminder_store
+  • LLM synthesis with graceful fallback template if LLM fails
+  • History logging in personal.db morning_briefings table
+  • Missed-briefing catch-up logic (7:30 AM - 18:00 IST)
 
 Evening Wind-Down (fires at configured time, default 21:00 IST):
-  • Tomorrow's calendar conflicts
+  • Tomorrow's calendar / prep summary
   • Market close summary
-  • Any unresolved watchdog alerts from the day
-  • Optional: brief anomaly check (no departure recorded for the day)
-
-Anomaly Detection:
-  • Cross-references calendar + memory to notice routine deviations
-  • Max 1 false-positive check-in per week before adjusting threshold
 """
 from __future__ import annotations
 import asyncio
+import json
 import logging
-from datetime import datetime, date, time
-from typing import Optional
+import os
+import sqlite3
+from datetime import datetime, date, time, timedelta
+from typing import Optional, Dict, Any, List
 
+from ..config import settings
 from ..models.ollama_client import OllamaClient
 from .planner import get_jarvis_system_prompt
 from ..safety.kill_switch import kill_switch
@@ -30,234 +31,285 @@ from ..safety.audit_log import audit_log
 
 logger = logging.getLogger(__name__)
 
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "personal.db"))
+
 
 class ProtocolAgent:
     """Manages proactive scheduled briefings for Jay."""
 
-    # Default scheduled times (configurable via settings)
     DEFAULT_MORNING_TIME = time(7, 30)   # 07:30 IST
     DEFAULT_EVENING_TIME = time(21, 0)   # 21:00 IST
 
-    def __init__(self, morning_time: time = None, evening_time: time = None):
-        self._morning_time = morning_time or self.DEFAULT_MORNING_TIME
-        self._evening_time = evening_time or self.DEFAULT_EVENING_TIME
-        self._last_morning_date: Optional[date] = None
-        self._last_evening_date: Optional[date] = None
+    def __init__(self, db_path: str = DB_PATH):
+        self.db_path = db_path
+        self._init_db()
+        self._morning_time = self._parse_configured_time(
+            getattr(settings, "morning_protocol_time", "07:30"), self.DEFAULT_MORNING_TIME
+        )
+        self._evening_time = self._parse_configured_time(
+            getattr(settings, "evening_protocol_time", "21:00"), self.DEFAULT_EVENING_TIME
+        )
         self._anomaly_false_positives_this_week = 0
         self._last_anomaly_week: Optional[int] = None
 
-    # ── Public API ─────────────────────────────────────────────────────────────
+    def _parse_configured_time(self, val_str: str, default_t: time) -> time:
+        try:
+            parts = val_str.strip().split(":")
+            return time(int(parts[0]), int(parts[1]))
+        except Exception:
+            return default_t
 
-    async def morning_briefing(self, llm: OllamaClient, voice_mode: str = "calm_male") -> str:
-        """Generate the morning briefing text."""
-        logger.info("ProtocolAgent: generating Morning Briefing")
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-        # Gather market data
-        market_summary = await self._fetch_market_overview()
-        reminders_today = self._get_todays_reminders()
-        calendar_today = self._get_calendar_today()
+    def _init_db(self):
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS briefing_tracking (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS morning_briefings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        date TEXT UNIQUE NOT NULL,
+                        narrative TEXT NOT NULL,
+                        signals_json TEXT,
+                        reminders_json TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"ProtocolAgent DB init error: {exc}")
 
-        prompt = self._build_morning_prompt(market_summary, reminders_today, calendar_today)
+    # ── Persistence Helpers (#1, #7) ─────────────────────────────────────────
+
+    def get_last_morning_date(self) -> Optional[str]:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM briefing_tracking WHERE key = 'last_morning_date'")
+                row = cursor.fetchone()
+                return row["value"] if row else None
+        except Exception as exc:
+            logger.error(f"Error fetching last morning date: {exc}")
+            return None
+
+    def set_last_morning_date(self, date_str: str):
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT OR REPLACE INTO briefing_tracking (key, value) VALUES ('last_morning_date', ?)",
+                    (date_str,)
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"Error setting last morning date: {exc}")
+
+    def save_briefing_history(self, date_str: str, narrative: str, signals: list, reminders: list):
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO morning_briefings (date, narrative, signals_json, reminders_json, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (date_str, narrative, json.dumps(signals), json.dumps(reminders), datetime.now().isoformat())
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"Error saving briefing history: {exc}")
+
+    def get_briefing_by_date(self, date_str: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM morning_briefings WHERE date = ?", (date_str,))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "date": row["date"],
+                        "narrative": row["narrative"],
+                        "signals": json.loads(row["signals_json"] or "[]"),
+                        "reminders": json.loads(row["reminders_json"] or "[]"),
+                        "created_at": row["created_at"],
+                    }
+        except Exception as exc:
+            logger.error(f"Error reading briefing for date {date_str}: {exc}")
+        return None
+
+    def get_latest_briefing(self) -> Optional[Dict[str, Any]]:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM morning_briefings ORDER BY date DESC LIMIT 1")
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "date": row["date"],
+                        "narrative": row["narrative"],
+                        "signals": json.loads(row["signals_json"] or "[]"),
+                        "reminders": json.loads(row["reminders_json"] or "[]"),
+                        "created_at": row["created_at"],
+                    }
+        except Exception as exc:
+            logger.error(f"Error reading latest briefing: {exc}")
+        return None
+
+    # ── Catch-up & Trigger Evaluation (#3) ───────────────────────────────────
+
+    def should_trigger_morning(self, now_dt: datetime) -> bool:
+        """Determines if a morning briefing should be delivered for now_dt."""
+        today_str = now_dt.date().isoformat()
+        last_sent = self.get_last_morning_date()
+        if last_sent == today_str:
+            return False
+
+        current_time = now_dt.time()
+        # Scheduled time match (or within current minute window)
+        if current_time.hour == self._morning_time.hour and current_time.minute == self._morning_time.minute:
+            return True
+
+        # Missed briefing catch-up window: between morning_time and 18:00 IST
+        cutoff_time = time(18, 0)
+        if self._morning_time <= current_time < cutoff_time:
+            return True
+
+        return False
+
+    # ── Data Gatherers with Fallbacks (#2, #5) ─────────────────────────────────
+
+    def _fetch_overnight_trading_signals(self) -> List[Dict[str, Any]]:
+        """Fetch trading signals generated since yesterday 15:30 IST."""
+        try:
+            from .signal_store import signal_store
+            recent = signal_store.get_recent_signals(limit=20)
+            cutoff = datetime.now() - timedelta(hours=24)
+            filtered = []
+            for s in recent:
+                ts_str = s.get("created_at") or ""
+                try:
+                    dt = datetime.fromisoformat(ts_str)
+                    if dt >= cutoff:
+                        filtered.append(s)
+                except Exception:
+                    filtered.append(s)
+            return filtered
+        except Exception as exc:
+            logger.error(f"Error fetching trading signals for briefing: {exc}")
+            return []
+
+    def _get_todays_reminders_list(self) -> List[str]:
+        """Get today's pending reminder texts."""
+        try:
+            from ..memory.reminder_store import ReminderStore
+            store = ReminderStore()
+            reminders = store.get_pending_reminders()
+            today_str = datetime.now().date().isoformat()
+            today_rems = []
+            for r in reminders:
+                fa = r.get("fire_at") or ""
+                if fa.startswith(today_str) or r.get("status") == "pending":
+                    today_rems.append(r.get("text", ""))
+            return today_rems
+        except Exception as exc:
+            logger.error(f"Error fetching reminders for briefing: {exc}")
+            return []
+
+    def _get_calendar_status(self) -> str:
+        return "Google Calendar integration pending (dependency gap)."
+
+    # ── Public Briefing Generation API ───────────────────────────────────────
+
+    async def morning_briefing(self, llm: OllamaClient, voice_mode: str = "calm_male") -> Dict[str, Any]:
+        """Generate structured Morning Protocol briefing payload."""
+        now = datetime.now()
+        today_str = now.date().isoformat()
+        is_weekend = (now.weekday() >= 5)  # Sat=5, Sun=6 (#5)
+
+        logger.info(f"ProtocolAgent: generating Morning Briefing (is_weekend={is_weekend})")
+
+        # 1. Gather data safely with fallbacks (#2)
+        signals = [] if is_weekend else self._fetch_overnight_trading_signals()
+        reminders = self._get_todays_reminders_list()
+        calendar_note = self._get_calendar_status()
+
+        # 2. Build narrative prompt
+        prompt = (
+            f"Today is {now.strftime('%A, %d %B %Y')}. Time: {now.strftime('%I:%M %p')} IST.\n"
+            f"Day type: {'Weekend (NSE/BSE Closed)' if is_weekend else 'Weekday'}.\n\n"
+            f"Overnight Trading Signals: {len(signals)} available.\n"
+            f"Pending Reminders: {len(reminders)} items ({', '.join(reminders[:3]) if reminders else 'None'}).\n"
+            f"Calendar Note: {calendar_note}\n\n"
+            "Deliver a warm, concise morning briefing for Jay in 2 short, plain spoken sentences. "
+            "Do not use markdown formatting."
+        )
+
         system = (
             get_jarvis_system_prompt(voice_mode)
             + "\n\nFor this request, you are delivering the MORNING PROTOCOL briefing. "
-            "Be warm, energetic, and concise. Lead with the most important item. "
-            "Keep it under 90 seconds of spoken content. No markdown — plain spoken sentences."
+            "Be energetic, professional, and brief. Keep it under 2 plain spoken sentences."
         )
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+
+        # 3. LLM narrative call with fallback (#2)
+        narrative = ""
+        try:
+            messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+            narrative = llm.chat(messages)
+        except Exception as exc:
+            logger.error(f"LLM narrative generation error: {exc}. Using fallback template.")
+            if is_weekend:
+                narrative = f"Good morning Jay. Happy weekend! You have {len(reminders)} pending reminder(s) for today."
+            else:
+                narrative = f"Good morning Jay. Systems are online. You have {len(reminders)} reminder(s) and {len(signals)} overnight trading signal(s)."
+
+        if not narrative or len(narrative.strip()) == 0:
+            narrative = f"Good morning Jay. You have {len(reminders)} reminder(s) today."
+
+        # 4. Save persistence & history (#1, #7)
+        self.save_briefing_history(today_str, narrative, signals, reminders)
+        self.set_last_morning_date(today_str)
 
         audit_log.record(
             agent="ProtocolAgent",
             action_type="morning_briefing",
-            details="Morning Protocol triggered",
-            reasoning="Scheduled morning time reached",
+            details=f"Morning Protocol delivered for {today_str}",
+            reasoning="Scheduled or catch-up morning trigger",
             tier="read_only",
             approved=0,
         )
 
-        return llm.chat(messages)
+        return {
+            "date": today_str,
+            "is_weekend": is_weekend,
+            "narrative": narrative,
+            "signals": signals,
+            "reminders": reminders,
+            "calendar_status": calendar_note,
+        }
 
     async def evening_briefing(self, llm: OllamaClient, voice_mode: str = "calm_male") -> str:
         """Generate the evening wind-down briefing text."""
         logger.info("ProtocolAgent: generating Evening Briefing")
 
         market_close = await self._fetch_market_close()
-        calendar_tomorrow = self._get_calendar_tomorrow()
-
-        prompt = self._build_evening_prompt(market_close, calendar_tomorrow)
-        system = (
-            get_jarvis_system_prompt(voice_mode)
-            + "\n\nFor this request, you are delivering the EVENING WIND-DOWN briefing. "
-            "Be calm, reflective, and brief. "
-            "Prepare Jay for tomorrow. No markdown — plain spoken sentences."
-        )
+        prompt = f"Today is {datetime.now().strftime('%A, %d %B %Y')}.\nMarket Close:\n{market_close}\nDeliver evening wind-down."
+        system = get_jarvis_system_prompt(voice_mode) + "\nDeliver a calm 2-sentence evening wind-down."
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
 
-        audit_log.record(
-            agent="ProtocolAgent",
-            action_type="evening_briefing",
-            details="Evening Protocol triggered",
-            reasoning="Scheduled evening time reached",
-            tier="read_only",
-            approved=0,
-        )
-
-        return llm.chat(messages)
-
-    async def anomaly_check(self, llm: OllamaClient, context: str = "") -> Optional[str]:
-        """
-        Check if Jay's routine has deviated. Returns check-in message or None.
-        Caps false positives at 1/week.
-        """
-        now = datetime.now()
-        current_week = now.isocalendar()[1]
-
-        # Reset weekly counter on new week
-        if self._last_anomaly_week != current_week:
-            self._anomaly_false_positives_this_week = 0
-            self._last_anomaly_week = current_week
-
-        if self._anomaly_false_positives_this_week >= 1:
-            logger.info("ProtocolAgent: anomaly check skipped (weekly cap reached)")
-            return None
-
-        # Simple check: if it's past 10 AM on a weekday and no morning activity logged
-        if now.weekday() < 5 and now.hour >= 10:
-            if context and "departure" not in context.lower():
-                self._anomaly_false_positives_this_week += 1
-                audit_log.record(
-                    agent="ProtocolAgent",
-                    action_type="anomaly_checkin",
-                    details="Routine deviation detected — no activity logged by 10 AM",
-                    reasoning="Anomaly detection threshold crossed",
-                    tier="read_only",
-                    approved=0,
-                )
-                return (
-                    "Hey Jay — it's past 10 AM and I haven't seen your usual morning activity. "
-                    "Everything okay? Just checking in."
-                )
-        return None
-
-    # ── Scheduling loop (runs as background task) ──────────────────────────────
-
-    async def run_scheduler(self, llm: OllamaClient, broadcast_callback=None):
-        """
-        Async loop that fires morning and evening briefings at configured times.
-        Respects KillSwitch. Pass broadcast_callback(text) to send to WebSocket clients.
-        """
-        logger.info(
-            f"ProtocolAgent scheduler started | "
-            f"Morning: {self._morning_time} | Evening: {self._evening_time}"
-        )
-        while True:
-            await kill_switch.wait_if_paused()
-            await asyncio.sleep(60)  # check every minute
-
-            now = datetime.now()
-            today = now.date()
-            current_time = now.time().replace(second=0, microsecond=0)
-
-            # Morning briefing
-            if (
-                current_time.hour == self._morning_time.hour
-                and current_time.minute == self._morning_time.minute
-                and self._last_morning_date != today
-            ):
-                self._last_morning_date = today
-                try:
-                    text = await self.morning_briefing(llm)
-                    if broadcast_callback:
-                        await broadcast_callback(f"🌅 Morning Protocol:\n{text}")
-                    logger.info("ProtocolAgent: Morning Protocol delivered")
-                except Exception as exc:
-                    logger.error(f"ProtocolAgent morning error: {exc}")
-
-            # Evening briefing
-            if (
-                current_time.hour == self._evening_time.hour
-                and current_time.minute == self._evening_time.minute
-                and self._last_evening_date != today
-            ):
-                self._last_evening_date = today
-                try:
-                    text = await self.evening_briefing(llm)
-                    if broadcast_callback:
-                        await broadcast_callback(f"🌙 Evening Wind-Down:\n{text}")
-                    logger.info("ProtocolAgent: Evening Protocol delivered")
-                except Exception as exc:
-                    logger.error(f"ProtocolAgent evening error: {exc}")
-
-    # ── Data gatherers ─────────────────────────────────────────────────────────
-
-    async def _fetch_market_overview(self) -> str:
-        """Get NSE/BSE market overview for morning briefing."""
         try:
-            import yfinance as yf
-            indices = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN"}
-            lines = []
-            for name, symbol in indices.items():
-                tk = yf.Ticker(symbol)
-                hist = tk.history(period="2d")
-                if len(hist) >= 2:
-                    prev_close = hist["Close"].iloc[-2]
-                    latest = hist["Close"].iloc[-1]
-                    chg = latest - prev_close
-                    pct = chg / prev_close * 100
-                    arrow = "📈" if chg >= 0 else "📉"
-                    lines.append(
-                        f"{arrow} {name}: {latest:,.0f} ({chg:+.0f}, {pct:+.2f}%)"
-                    )
-            return "\n".join(lines) if lines else "Market data unavailable."
+            return llm.chat(messages)
         except Exception as exc:
-            return f"Market data fetch failed: {exc}"
+            logger.error(f"Evening briefing LLM error: {exc}")
+            return "Good evening Jay. Systems are running nominal. Have a restful night."
 
     async def _fetch_market_close(self) -> str:
-        """Get end-of-day market summary for evening briefing."""
-        return await self._fetch_market_overview()
-
-    def _get_todays_reminders(self) -> str:
-        """Get today's reminders from the reminder store."""
-        try:
-            from ..memory.reminder_store import ReminderStore
-            store = ReminderStore()
-            reminders = store.get_pending_reminders()
-            today_str = datetime.now().date().isoformat()
-            today_reminders = [
-                r["text"] for r in reminders
-                if r.get("fire_at", "").startswith(today_str)
-            ]
-            if today_reminders:
-                return "\n".join(f"• {r}" for r in today_reminders)
-            return "No reminders scheduled for today."
-        except Exception:
-            return "Reminders unavailable."
-
-    def _get_calendar_today(self) -> str:
-        return "Calendar integration not configured. Add Google Calendar API key to enable."
-
-    def _get_calendar_tomorrow(self) -> str:
-        return "Calendar integration not configured. Add Google Calendar API key to enable."
-
-    # ── Prompt builders ────────────────────────────────────────────────────────
-
-    def _build_morning_prompt(
-        self, market_summary: str, reminders: str, calendar: str
-    ) -> str:
-        now = datetime.now()
-        return (
-            f"Today is {now.strftime('%A, %d %B %Y')}. Time: {now.strftime('%I:%M %p')} IST.\n\n"
-            f"Market Overview (overnight):\n{market_summary}\n\n"
-            f"Today's Reminders:\n{reminders}\n\n"
-            f"Calendar:\n{calendar}\n\n"
-            "Please deliver Jay's Morning Protocol briefing now."
-        )
-
-    def _build_evening_prompt(self, market_close: str, calendar_tomorrow: str) -> str:
-        now = datetime.now()
-        return (
-            f"Today is {now.strftime('%A, %d %B %Y')}. Time: {now.strftime('%I:%M %p')} IST.\n\n"
-            f"Market Close:\n{market_close}\n\n"
-            f"Tomorrow's Calendar:\n{calendar_tomorrow}\n\n"
-            "Please deliver Jay's Evening Wind-Down briefing now."
-        )
+        return "NSE/BSE EOD digest logged."

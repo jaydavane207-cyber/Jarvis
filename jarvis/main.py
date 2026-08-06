@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
 
@@ -237,56 +237,45 @@ async def crm_checker() -> None:
 # ── Protocol Scheduler (Morning & Evening Briefings) ──────────────────────────
 
 async def protocol_scheduler() -> None:
-    """Fire morning and evening briefings at configured times."""
-    from datetime import time as dt_time
+    """Fire morning and evening briefings at configured times with DB persistence and catch-up."""
+    from datetime import datetime
     from .safety.kill_switch import kill_switch
 
-    try:
-        morning_parts = settings.morning_protocol_time.split(":")
-        evening_parts = settings.evening_protocol_time.split(":")
-        morning_t = dt_time(int(morning_parts[0]), int(morning_parts[1]))
-        evening_t = dt_time(int(evening_parts[0]), int(evening_parts[1]))
-    except Exception:
-        morning_t = dt_time(7, 30)
-        evening_t = dt_time(21, 0)
-
-    logger.info(
-        f"Protocol Scheduler started | Morning: {morning_t} | Evening: {evening_t}"
-    )
-
-    last_morning = None
-    last_evening = None
+    logger.info("Protocol Scheduler started with persistent DB tracking & catch-up.")
 
     while True:
         await kill_switch.wait_if_paused()
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
-        from datetime import datetime, date
         now = datetime.now()
         today = now.date()
-        ct = now.time().replace(second=0, microsecond=0)
 
-        if ct.hour == morning_t.hour and ct.minute == morning_t.minute and last_morning != today:
-            last_morning = today
-            try:
-                text = await router.protocol_agent.morning_briefing(router.llm)
+        # Morning Briefing evaluation (handles DB tracking + 7:30-18:00 catch-up window)
+        try:
+            if router.protocol_agent.should_trigger_morning(now):
+                payload = await router.protocol_agent.morning_briefing(router.llm)
                 await manager.broadcast(
-                    json.dumps({"type": "system", "text": f"🌅 Morning Protocol:\n{text}"})
+                    json.dumps({
+                        "type": "morning_briefing",
+                        "data": payload
+                    })
                 )
-                logger.info("Protocol Scheduler: Morning Protocol delivered")
-            except Exception as exc:
-                logger.error(f"Protocol scheduler morning error: {exc}")
+                logger.info("Protocol Scheduler: Morning Protocol delivered & broadcast.")
+        except Exception as exc:
+            logger.error(f"Protocol scheduler morning error: {exc}")
 
-        if ct.hour == evening_t.hour and ct.minute == evening_t.minute and last_evening != today:
-            last_evening = today
-            try:
+        # Evening Briefing evaluation
+        try:
+            ct = now.time().replace(second=0, microsecond=0)
+            evening_t = router.protocol_agent._evening_time
+            if ct.hour == evening_t.hour and ct.minute == evening_t.minute:
                 text = await router.protocol_agent.evening_briefing(router.llm)
                 await manager.broadcast(
                     json.dumps({"type": "system", "text": f"🌙 Evening Wind-Down:\n{text}"})
                 )
                 logger.info("Protocol Scheduler: Evening Protocol delivered")
-            except Exception as exc:
-                logger.error(f"Protocol scheduler evening error: {exc}")
+        except Exception as exc:
+            logger.error(f"Protocol scheduler evening error: {exc}")
 
 
 # ── Shadow Portfolio Evaluator ─────────────────────────────────────────────────
@@ -374,6 +363,105 @@ async def privacy_ui(username: str = Depends(verify_credentials)):
         with open(_privacy_index, encoding="utf-8") as f:
             return HTMLResponse(f.read())
     return HTMLResponse("Privacy UI not found.", status_code=404)
+
+
+@app.get("/viewer", response_class=HTMLResponse, tags=["Conversations"])
+async def conversation_viewer_ui(username: str = Depends(verify_credentials)):
+    """Serve the AI Conversation Viewer HTML."""
+    _viewer_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "conversation_viewer.html")
+    )
+    if os.path.isfile(_viewer_path):
+        with open(_viewer_path, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse("conversation_viewer.html not found.", status_code=404)
+
+
+@app.get("/api/conversations", tags=["Conversations"])
+async def get_conversations(username: str = Depends(verify_credentials)):
+    """Return session history queried from personal.db and memory store."""
+    import sqlite3
+    conversations = []
+    
+    # 1. Query personal.db
+    personal_db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "personal.db"))
+    if os.path.exists(personal_db_path):
+        try:
+            with sqlite3.connect(personal_db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                if "session_history" in tables:
+                    rows = conn.execute("SELECT id, title, count FROM session_history ORDER BY id DESC").fetchall()
+                    for r in rows:
+                        conversations.append({"id": str(r["id"]), "title": r["title"], "count": r["count"]})
+                elif "messages" in tables:
+                    cnt = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+                    if cnt > 0:
+                        conversations.append({"id": "personal_db_session", "title": "JARVIS Personal DB Session", "count": cnt})
+        except Exception as exc:
+            logger.error(f"Error querying personal.db for conversations: {exc}")
+
+    # 2. Query active memory.db session messages
+    try:
+        msgs = router.memory.get_recent_messages(limit=500)
+        if msgs and not any(c["id"] == "active_jarvis_session" for c in conversations):
+            first_user_msg = next((m["content"] for m in msgs if m.get("role") == "user"), "JARVIS Operator Session")
+            title = first_user_msg[:48] + "..." if len(first_user_msg) > 48 else first_user_msg
+            conversations.append({
+                "id": "active_jarvis_session",
+                "title": title.upper(),
+                "count": len(msgs),
+            })
+    except Exception as exc:
+        logger.error(f"Error getting memory messages: {exc}")
+
+    # Default fallback if no sessions recorded yet
+    if not conversations:
+        conversations.append({
+            "id": "active_jarvis_session",
+            "title": "JARVIS OPERATOR CONSOLE SESSION",
+            "count": 0,
+        })
+
+    return conversations
+
+
+@app.get("/api/conversations/{convo_id}", response_class=PlainTextResponse, tags=["Conversations"])
+async def get_conversation_transcript(convo_id: str, username: str = Depends(verify_credentials)):
+    """Return JSONL message transcript for a specific conversation session."""
+    if convo_id in ("active_jarvis_session", "personal_db_session"):
+        msgs = router.memory.get_recent_messages(limit=500)
+        lines = []
+        for m in msgs:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            ts = m.get("timestamp", "")
+            lines.append(json.dumps({
+                "role": role,
+                "content": content,
+                "timestamp": ts,
+                "source": "USER_EXPLICIT" if role == "user" else "MODEL"
+            }))
+        return "\n".join(lines)
+    
+    # Query personal.db for session_history transcript if table exists
+    import sqlite3
+    personal_db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "personal.db"))
+    if os.path.exists(personal_db_path):
+        try:
+            with sqlite3.connect(personal_db_path) as conn:
+                tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                if "session_messages" in tables or "messages" in tables:
+                    table = "session_messages" if "session_messages" in tables else "messages"
+                    rows = conn.execute(f"SELECT role, content, timestamp FROM {table} WHERE session_id = ? ORDER BY id ASC", (convo_id,)).fetchall()
+                    if rows:
+                        lines = [json.dumps({"role": r[0], "content": r[1], "timestamp": r[2]}) for r in rows]
+                        return "\n".join(lines)
+        except Exception as exc:
+            logger.error(f"Error querying conversation {convo_id}: {exc}")
+
+    return Response(content="Conversation transcript not found.", status_code=404)
+
 
 
 @app.get("/health", tags=["Health"])
@@ -743,6 +831,36 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+# ── Morning Protocol REST API ──────────────────────────────────────────────────
+
+@app.post("/api/protocol/morning/trigger", dependencies=[Depends(verify_credentials)])
+async def trigger_morning_protocol():
+    """Manually trigger Morning Protocol briefing generation and WebSocket broadcast."""
+    payload = await router.protocol_agent.morning_briefing(router.llm)
+    await manager.broadcast(
+        json.dumps({
+            "type": "morning_briefing",
+            "data": payload
+        })
+    )
+    return {"status": "ok", "payload": payload}
+
+@app.get("/api/protocol/morning", dependencies=[Depends(verify_credentials)])
+async def get_latest_morning_protocol():
+    """Get the latest morning briefing record from personal.db."""
+    latest = router.protocol_agent.get_latest_briefing()
+    if not latest:
+        return JSONResponse({"status": "none", "message": "No morning briefing recorded yet."}, status_code=404)
+    return latest
+
+@app.get("/api/protocol/briefings/{date_str}", dependencies=[Depends(verify_credentials)])
+async def get_morning_protocol_by_date(date_str: str):
+    """Get morning briefing record for a specific date (YYYY-MM-DD)."""
+    briefing = router.protocol_agent.get_briefing_by_date(date_str)
+    if not briefing:
+        return JSONResponse({"status": "none", "message": f"No briefing found for date {date_str}."}, status_code=404)
+    return briefing
 
 # ── Dev entry point ────────────────────────────────────────────────────────────
 # reload=True is single-worker only (uvicorn limitation) — fine for local dev.

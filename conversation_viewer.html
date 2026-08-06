@@ -1329,7 +1329,13 @@
                 let res;
                 if (window.location.protocol !== 'file:') {
                     try {
-                        res = await fetch('/api/conversations');
+                        res = await fetch('/api/conversations', {credentials: 'same-origin'});
+                    } catch(e) {}
+                }
+                if (!res || !res.ok) {
+                    apiBase = 'http://127.0.0.1:8000';
+                    try {
+                        res = await fetch(apiBase + '/api/conversations', {credentials: 'include'});
                     } catch(e) {}
                 }
                 if (!res || !res.ok) {
